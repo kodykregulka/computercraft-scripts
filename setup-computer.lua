@@ -8,4 +8,4 @@ fs.makeDir("/programs/turtle")
 settings.load()
 -- if you edit the above directory structure make sure you update this api_path 
 -- look up how the require function works in lua, the .apis. means /apis/
-settings.set("require.api_path", ".apis.")
+shell.run("/startup.lua")

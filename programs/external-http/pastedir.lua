@@ -32,11 +32,14 @@ local function encode_recursively(path)
         for key, element_name in pairs(dir_contents)
         do
             local element_path = path .. "/" .. element_name
-            if(fs.exists(element_path))
+            if(shell.resolve(element_path) ~= "rom") 
             then
-                node.data[key] = encode_recursively(element_path)
-            else
-                error("error resolving an element in a directory at " .. element_path, 2)
+                if(fs.exists(element_path))
+                then
+                    node.data[key] = encode_recursively(element_path)
+                else
+                    error("error resolving an element in a directory at " .. element_path, 2)
+                end
             end
         end
     else

@@ -72,21 +72,21 @@ end
 
 local function setMovementMode(robox, actionMode)
     function robox.forward(count)
-        return actionMode(turtle.forward, count)
+        return actionMode(turtle.forward, count, "forward")
     end
     robox.fw = robox.forward
 
     function robox.backward(count)
-        return actionMode(turtle.backward, count)
+        return actionMode(turtle.backward, count, "backward")
     end
     robox.bw = robox.backward
 
     function robox.up(count)
-        return actionMode(turtle.up, count)
+        return actionMode(turtle.up, count, "up")
     end
     
     function robox.down(count)
-        return actionMode(turtle.down, count)
+        return actionMode(turtle.down, count, "down")
     end
     robox.dw = robox.down
     
@@ -101,15 +101,15 @@ local function setMovementMode(robox, actionMode)
     robox.tr = robox.turnRight
 
     function robox.forwardWithDig(count, tryCount)
-        return actionMode(setupMoveWithDig(turtle.forward, turtle.dig, tryCount or robox.DIG_TRY_LIMIT), count)
+        return actionMode(setupMoveWithDig(turtle.forward, turtle.dig, tryCount or robox.DIG_TRY_LIMIT), count, "forwardWithDig")
     end
 
     function robox.upWithDig(count, tryCount)
-        return actionMode(setupMoveWithDig(turtle.up, turtle.digUp, tryCount or robox.DIG_TRY_LIMIT), count)
+        return actionMode(setupMoveWithDig(turtle.up, turtle.digUp, tryCount or robox.DIG_TRY_LIMIT), count, "upWithDig")
     end
 
     function robox.downWithDig(count, tryCount)
-        return actionMode(setupMoveWithDig(turtle.down, turtle.digDown, tryCount or robox.DIG_TRY_LIMIT), count)
+        return actionMode(setupMoveWithDig(turtle.down, turtle.digDown, tryCount or robox.DIG_TRY_LIMIT), count, "downWithDig")
     end
 end
 

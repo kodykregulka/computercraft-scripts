@@ -1,0 +1,1 @@
+settings.set("require.api_path", ".apis.")
