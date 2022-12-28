@@ -16,6 +16,9 @@ function queueBuilder.new()
         queue.data[queue.last] = value
     end
 
+    function queue.hasNext()
+        return queue.data[queue.first] ~= nil
+    end
     function queue.peek()
         return queue.data[queue.first]
     end

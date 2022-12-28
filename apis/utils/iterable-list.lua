@@ -3,8 +3,9 @@ local expect, field, range = expect.expect, expect.field, expect.range
 
 local iListBuilder = {}
 
-function iListBuilder.new()
+function iListBuilder.new(name)
     local list = {}
+    list.name = name
     list.length = 0
     list.lastIndex = 0 -- when searching, this is the last value that was searched
     list.members = {}
@@ -15,6 +16,8 @@ function iListBuilder.new()
             list.length = list.length + 1
             list.members[list.length] = obj
             list.lastIndex = list.length
+        else
+            error("cannot add nil to list", 2)
         end
     end
 
@@ -35,6 +38,12 @@ function iListBuilder.new()
             list.lastIndex = list.lastIndex + 1
             return list.lastIndex
         end
+    end
+
+    function list.print()
+        print("name: " .. list.name)
+        print("length: " .. list.length)
+        print("lastIndex: " .. list.lastIndex)
     end
 
     return list
