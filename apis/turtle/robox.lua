@@ -131,7 +131,7 @@ function roboxBuilder.configure(config)
             ["stop"] = function () setMovementMode(robox, standardActionWithStop) end,
             ["error"] = function () setMovementMode(robox, standardActionWithError) end,
         }
-        local result = switch(config.MOVEMENT_MODE)
+        local result = switch[config.MOVEMENT_MODE]
         if(result) then result()
         else error("Not a valid movementMode: " .. config.MOVEMENT_MODE, 2) end
     else
@@ -187,5 +187,4 @@ function roboxBuilder.configure(config)
 
     return robox
 end
-local defaultRobox = roboxBuilder.configure()
-return defaultRobox, roboxBuilder
+return roboxBuilder

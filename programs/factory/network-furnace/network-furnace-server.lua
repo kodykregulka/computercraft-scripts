@@ -9,7 +9,7 @@ local expect = require "cc.expect"
 local expect, field = expect.expect, expect.field
 
 local FUEL_POINTS = {}
---FUEL_POINTS["minecraft:lava_bucket"] = 100 --not supported yet
+FUEL_POINTS["minecraft:lava_bucket"] = 100
 FUEL_POINTS["minecraft:coal_block"] = 80
 FUEL_POINTS["minecraft:dried_kelp_block"] = 20
 FUEL_POINTS["minecraft:blaze_rod"] = 12
@@ -360,6 +360,11 @@ function furnaceBuilder.new(config)
     end
 
     function furnace.removeOutput()
+        --if(furnace.pWrap.getItemDetail(2) ~= nil)then
+            --empty fuel, it may be a bucket
+         --   dropIntoChestList(fuelChestList, furnace.name, 2)
+        --end
+
         return dropIntoChestList(outputChestList, furnace.name, 3)
     end
 
@@ -473,6 +478,10 @@ function jobBuilder.new(furnace, fuelChestObj, fuelChestSlotIndex, fuelCount, fu
         if(transferedInput == job.taskInProgress.itemCount) then
             --success
             local timerID = os.startTimer(job.taskInProgress.itemCount*10)
+            if(furnace.pWrap.getItemDetail(2).name == "minecraft:bucket")then
+                --remove empty bucket
+                dropIntoChestList(fuelChestList, furnace.name, 2)
+            end
             inProgressJobList.insert(timerID, job)
         elseif(transferedInput < job.taskInProgress.itemCount)then
             --continue job, but log warning

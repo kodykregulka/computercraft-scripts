@@ -1,5 +1,5 @@
 --just for building a tower straight up
-local robox = require(settings.get("require.api_path") .. "turtle.robox")
+local robox = require(settings.get("require.api_path") .. "turtle.robox").configure()
 
 for i = 1, 64, 1
 do

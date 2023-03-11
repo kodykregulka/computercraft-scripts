@@ -1,4 +1,4 @@
-local robox = require(settings.get("require.api_path") .. "turtle.robox")
+local robox = require(settings.get("require.api_path") .. "turtle.robox").configure()
 
 local function placeKelp()
     for i = 1, 5, 1

@@ -10,7 +10,7 @@
 local expect = require "cc.expect"
 local expect, field = expect.expect, expect.field
 
-local robox = require(settings.get("require.api_path") .. "turtle.robox")
+local robox = require(settings.get("require.api_path") .. "turtle.robox").configure()
 
 local excavate = {}
 
