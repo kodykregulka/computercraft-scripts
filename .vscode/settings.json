@@ -1,0 +1,14 @@
+{
+    "Lua.diagnostics.globals": [
+        "turtle",
+        "settings",
+        "peripheral",
+        "fs",
+        "textutils",
+        "shell",
+        "parallel",
+        "http",
+        "read",
+        "gps"
+    ]
+}
