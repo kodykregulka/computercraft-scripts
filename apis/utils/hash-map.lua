@@ -37,6 +37,42 @@ function hashMapBuilder.new()
         return hashMap._data[key]
     end
 
+    function hashMap.toJsonObj()
+        local jsonObj = {}
+        jsonObj.data = hashMap._data
+        jsonObj.size = hashMap._size
+        return jsonObj
+    end
+
+    function hashMap.toJsonString()
+        local jsonObj = hashMap.toJsonObj()
+        return textutils.serialize(jsonObj)
+    end
+
+    return hashMap
+end
+
+function hashMapBuilder.toJsonString(hashMap)
+    return hashMap.toJson()
+end
+
+function hashMapBuilder.fromJsonString(json, dataConstructor)
+    local jsonObj = textutils.unserialize(json)
+    hashMapBuilder.fromJsonObj(jsonObj, dataConstructor)
+end
+
+function hashMapBuilder.fromJsonObj(jsonObj, dataConstructor)
+    local hashMap = hashMapBuilder.new()
+
+    if(dataConstructor) then
+        for name, data in pairs(jsonObj.data) do
+            hashMap.insert(name, dataConstructor(data))
+        end
+    else
+        hashMap._data = jsonObj.data
+        hashMap._size = jsonObj.size
+    end
+
     return hashMap
 end
 

@@ -206,7 +206,7 @@ local function findNextSlotWithCriteria(iWrap, startSlot, criteriaFunc)
     return -1
 end
 local function findNextChestSlotWithCriteria(chestList, criteriaFunc)
-    local startPoint = chestList.lastIndex
+    local startPoint = chestList.currentIndex
     local chestIndex = startPoint
     repeat
         local chest = chestList.get(chestIndex)
@@ -221,7 +221,7 @@ local function findNextChestSlotWithCriteria(chestList, criteriaFunc)
     return -1, -1
 end
 local function dropIntoChestList(chestList, sourceName, sourceSlot, desiredAmount)
-    local startPoint = chestList.lastIndex
+    local startPoint = chestList.currentIndex
     local chestIndex = startPoint
     local transferedAmount = 0
     local sourceWrap = peripheral.wrap(sourceName)
@@ -266,7 +266,7 @@ end
 --input chests
 local inputChestList = listBuilder.new("input chests")
 local i = 1
-for _name, configChest in pairs(pnetworkConfig.groupList["input"].members) do
+for _name, configChest in pairs(pnetworkConfig.groupList["input"]._members) do
     if(configChest)
     then
         local tempWrap = peripheral.wrap(configChest.permName)
@@ -282,7 +282,7 @@ end
 
 --reserve chests (for reserving items that belong to multi-itemType jobs)
 local reserveChestList = listBuilder.new("reserve chests")
-for _name, configChest in pairs(pnetworkConfig.groupList["reserve"].members) do
+for _name, configChest in pairs(pnetworkConfig.groupList["reserve"]._members) do
     --reserveChestList[configChest.permName] = peripheral.wrap(configChest.permName)
     local tempWrap = peripheral.wrap(configChest.permName)
     reserveChestList.add(
@@ -315,7 +315,7 @@ end
 
 --output chests
 local outputChestList = listBuilder.new("output chests")
-for _name, configChest in pairs(pnetworkConfig.groupList["output"].members) do
+for _name, configChest in pairs(pnetworkConfig.groupList["output"]._members) do
     local tempWrap = peripheral.wrap(configChest.permName)
     outputChestList.add(
         chestBuilder.new(
@@ -329,7 +329,7 @@ end
 
 --fuel chests
 local fuelChestList = listBuilder.new("fuel chests")
-for _name, configChest in pairs(pnetworkConfig.groupList["fuel"].members) do
+for _name, configChest in pairs(pnetworkConfig.groupList["fuel"]._members) do
     --fuelChestList[configChest.permName] = peripheral.wrap(configChest.permName)
     local tempWrap = peripheral.wrap(configChest.permName)
     fuelChestList.add(
@@ -381,7 +381,7 @@ function furnaceBuilder.new(config)
     end
     return furnace
 end
-for _name, configFurnace in pairs(pnetworkConfig.groupList["furnaces"].members) do
+for _name, configFurnace in pairs(pnetworkConfig.groupList["furnaces"]._members) do
     avalibleFurnaceQueue.push(furnaceBuilder.new(configFurnace))
 end
 
@@ -640,7 +640,7 @@ elseif(command == "launch")then
     print("network-furnace-server stopped due to " .. functionName[functionNumber])
 elseif(command == "reset")then
     print("clearing reserve chests")
-    for _index, chest in pairs(reserveChestList.members) do
+    for _index, chest in pairs(reserveChestList._members) do
         for slotIndex, slotObj in pairs(chest.pWrap.list())do
             dropIntoChestList(inputChestList, chest.name, slotIndex)
         end

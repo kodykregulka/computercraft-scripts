@@ -13,3 +13,17 @@ do
     robox.up()
     robox.placeDown()
 end
+
+robox.select(3)
+for i = 1, 64, 1
+do
+    robox.up()
+    robox.placeDown()
+end
+
+robox.select(4)
+for i = 1, 64, 1
+do
+    robox.up()
+    robox.placeDown()
+end

@@ -12,25 +12,23 @@ local function placeKelp()
     error("didnt place kelp")
 end
 
+local function place64(kelpSpot, fillSpot)
+    for i = 1, 64, 1
+    do
+        robox.select(kelpSpot)
+        placeKelp()
+        robox.up() -- will fail when blocked
+        robox.select(fillSpot)
+        robox.placeDown()
+    end
+end
+
 local kelpSpot = 1
 local fillSpot = 5
 
-for i = 1, 64, 1
+for i = 1, 10, 1
 do
-    robox.select(kelpSpot)
-    placeKelp()
-    robox.up() -- will fail when blocked
-    robox.select(fillSpot)
-    robox.placeDown()
-end
-kelpSpot = 2
-fillSpot = 6
-robox.select(2)
-for i = 1, 64, 1
-do
-    robox.select(kelpSpot)
-    placeKelp()
-    robox.up() -- will fail when blocked
-    robox.select(fillSpot)
-    robox.placeDown()
+    place64(kelpSpot, fillSpot)
+    kelpSpot = kelpSpot + 1
+    fillSpot = fillSpot + 1
 end
