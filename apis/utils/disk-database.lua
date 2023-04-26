@@ -39,7 +39,7 @@ local function _newDatabase(dbDirectory, config)
     database.tableHashMap = hashMapBuilder.new()
     
     function database.createTable(tableName)
-        local newTable = _createTable(tableName)
+        local newTable = _createTable(database, tableName)
         newTable.save()
         return newTable
     end
