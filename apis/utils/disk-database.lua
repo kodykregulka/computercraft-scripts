@@ -11,10 +11,10 @@ databaseBuilder.configFileName = "database-config.json"
 
 local function _createTable(database, tableName)
     local tableObj = {}
-    table.name = tableName
-    table.recordHashMap = hashMapBuilder.new()
-    table.tableData = {}
-    table.action = {}
+    tableObj.name = tableName
+    tableObj.recordHashMap = hashMapBuilder.new()
+    tableObj.tableData = {}
+    tableObj.action = {}
 
     function tableObj.save()
         local file = fs.open(fs.combine(database.config.tableDirectory, tableName .. ".json"), "w")
@@ -64,13 +64,13 @@ end
 
 function databaseBuilder.new(dbDirectory, tableDirectory)
     fs.makeDir(dbDirectory)
-    if(~fs.exists(dbDirectory))then
+    if(not fs.exists(dbDirectory))then
         error("unable to create a database at " .. dbDirectory, 2)
     end
 
     tableDirectory = tableDirectory or fs.combine(dbDirectory, "tables")
     fs.makeDir(tableDirectory)
-    if(~fs.exists(tableDirectory))then
+    if(not fs.exists(tableDirectory))then
         error("unable to create a database at " .. tableDirectory, 2)
     end
 
@@ -86,7 +86,7 @@ function databaseBuilder.new(dbDirectory, tableDirectory)
 end
 
 function databaseBuilder.load(dbDirectory)
-    if(~fs.isDir(dbDirectory))then
+    if(not fs.isDir(dbDirectory))then
         error("unable to find a database at " .. dbDirectory, 2)
     end
 
@@ -95,7 +95,7 @@ function databaseBuilder.load(dbDirectory)
     local configJson = textutils.unserialize(configFile.readAll())
     configFile.close()
 
-    if(~fs.isDir(configJson.tableDirectory)) then
+    if(not fs.isDir(configJson.tableDirectory)) then
         error("unable to read database tables")
     end
 
@@ -108,13 +108,13 @@ function databaseBuilder.load(dbDirectory)
         local fileName = fs.combine(configJson.tableDirectory, element_name)
         local file = fs.open(fileName, "r")
         local tableJson = textutils.unserialize(file.readAll())
-        if(~tableJson or ~tableJson.name or ~tableJson.tableData or ~tableJson.recordHashMap) then
+        if(not tableJson or not tableJson.name or not tableJson.tableData or not tableJson.recordHashMap) then
             error("unable to read table " .. fileName)
         end
 
         local loadTable = _createTable(db,tableJson.name)
         loadTable.tableData = tableJson.tableData
-        loadTable.recordHashMap = listBuilder.fromJsonObj(tableJson.recordHashMap)
+        loadTable.recordHashMap = hashMapBuilder.fromJsonObj(tableJson.recordHashMap)
     end
 
     return db

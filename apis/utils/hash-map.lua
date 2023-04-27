@@ -39,8 +39,8 @@ function hashMapBuilder.new()
 
     function hashMap.toJsonObj()
         local jsonObj = {}
-        jsonObj.data = hashMap._data
-        jsonObj.size = hashMap._size
+        jsonObj._data = hashMap._data
+        jsonObj._size = hashMap._size
         return jsonObj
     end
 
@@ -65,12 +65,12 @@ function hashMapBuilder.fromJsonObj(jsonObj, dataConstructor)
     local hashMap = hashMapBuilder.new()
 
     if(dataConstructor) then
-        for name, data in pairs(jsonObj.data) do
+        for name, data in pairs(jsonObj._data) do
             hashMap.insert(name, dataConstructor(data))
         end
     else
-        hashMap._data = jsonObj.data
-        hashMap._size = jsonObj.size
+        hashMap._data = jsonObj._data
+        hashMap._size = jsonObj._size
     end
 
     return hashMap
