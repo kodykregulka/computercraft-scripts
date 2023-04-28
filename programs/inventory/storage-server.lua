@@ -261,40 +261,62 @@ function storageSystem.chestGroups.findFreeRasChestSlot()
 end
 
 function storageSystem.addToRAS(itemName, sourceChestObj, sourceChestSlot, sourceItemCount)
-    --check if there is already a table for this item
-    local itemTable = itemDB.action.getTable(itemName)
-    if(itemTable == nil) then
-        --create a new table
-        itemTable = itemDB.action.createTable(itemName)
+    local function addToRASRecord(itemName, sourceChestObj, sourceChestSlot, sourceItemCount)
+        --check if there is already a table for this item
+        local itemTable = itemDB.action.getTable(itemName)
+        if(itemTable == nil) then
+            --create a new table
+            itemTable = itemDB.action.createTable(itemName)
+        end
+
+        --local itemsLeftToTransfer = sourceItemCount
+        local targetRecord, freeSpace = itemTable.action.getRecordWithFreeSpace()
+        if(not targetRecord or freeSpace == 0) then
+            --find a new chest slot
+            local chestObj, slotIndex = storageSystem.chestGroups.findFreeRasChestSlot()
+            local key = nil
+            key, targetRecord = itemTable.action.addNewRecord(chestObj.name, slotIndex, 0)
+            freeSpace = itemConstants[itemName].stackSize - targetRecord.itemCount 
+        end
+
+        local itemsToTransfer = freeSpace
+        if(itemsToTransfer > sourceItemCount) then
+            itemsToTransfer = sourceItemCount
+        end
+        local itemCountInSlotBeforeTransfer = targetRecord.itemCount
+
+        --add to db record
+        local itemsPushingCount = itemTable.action.addToRecord(targetRecord, itemsToTransfer)
+
+        --do transfer between chests
+        local itemsTransferedCount = sourceChestObj.pWrap.pushItems(targetRecord.chestName,sourceChestSlot, itemsPushingCount, targetRecord.chestSlot)
+        if(itemsTransferedCount ~= itemsPushingCount) then
+            itemTable.action.fixRecord(targetRecord)
+        end
+
+        --only after successful transfer do we save
+        itemTable.save()
+        return itemsTransferedCount
     end
 
-    --local itemsLeftToTransfer = sourceItemCount
-    local targetRecord, freeSpace = itemTable.action.getRecordWithFreeSpace()
-    if(not targetRecord or freeSpace == 0) then
-        --find a new chest slot
-        local chestObj, slotIndex = storageSystem.chestGroups.findFreeRasChestSlot()
-        local key = nil
-        key, targetRecord = itemTable.action.addNewRecord(chestObj.name, slotIndex, 0)
-        freeSpace = itemConstants[itemName].stackSize - targetRecord.itemCount 
+    local itemsTransferedCount = 0
+    local previousItemsTransferedCount = 0
+    while true do
+        previousItemsTransferedCount = itemsTransferedCount
+        itemsTransferedCount = itemsTransferedCount + addToRASRecord(itemName, sourceChestObj, sourceChestSlot, sourceItemCount)
+        if(itemsTransferedCount >= sourceItemCount) then
+            --all good
+            return 200
+        elseif(previousItemsTransferedCount == itemsTransferedCount) then
+            --unable to transfer? return as error
+            if(itemsTransferedCount > 0) then
+                --partial success
+                return 206, {errorMessage = "unable to add all of the items to the RAS storage", itemsTransferedCount = itemsTransferedCount}
+            else
+                return 500, {errorMessage = "unable to add any of the items to the RAS storage"}
+            end
+        end
     end
-
-    local itemsToTransfer = freeSpace
-    if(itemsToTransfer > sourceItemCount) then
-        itemsToTransfer = sourceItemCount
-    end
-    local itemCountInSlotBeforeTransfer = targetRecord.itemCount
-
-    --add to db record
-    local itemsPushingCount = itemTable.action.addToRecord(targetRecord, itemsToTransfer)
-
-    --do transfer between chests
-    local itemsTransferedCount = sourceChestObj.pWrap.pushItems(targetRecord.chestName,sourceChestSlot, itemsPushingCount, targetRecord.chestSlot)
-    if(itemsTransferedCount ~= itemsPushingCount) then
-        itemTable.action.fixRecord(targetRecord)
-    end
-
-    --only after successful transfer do we save
-    itemTable.save()
 end
 
 function storageSystem.chestGroups.dropIntoChestList(chestList, sourceName, sourceSlot, desiredAmount)
@@ -426,11 +448,11 @@ function storageSystem.chestGroups.findNextChestSlotWithCriteria(chestList, crit
         if(slotIndex > 0)
         then
             chest.lastSlot = slotIndex
-            return chestIndex, slotIndex, itemCount, itemName
+            return chest, slotIndex, itemCount, itemName
         end
         chestIndex = chestList.nextIndex()
     until (chestIndex == startPoint)
-    return -1, -1
+    return nil
 end
 
 function storageSystem.chestGroups.moveAllItemsInGroup(sourceChestList, targetChestList)
@@ -441,26 +463,203 @@ function storageSystem.chestGroups.moveAllItemsInGroup(sourceChestList, targetCh
     end
 end
 
+storageSystem.tasks = {}
+storageSystem.tasks.todoQueue = queueBuilder.new()
+storageSystem.tasks.doneQueue = queueBuilder.new()
+storageSystem.tasks.chestSlotInUseHashMap = hashMapBuilder.new()
+
+function storageSystem.tasks.newTask(funct, ...)
+    local task = {}
+    task.funct = funct
+    task.response = {}
+    --task.itemName = nil if present, the item type associated with this job
+    --task.chestSlotInUse = nil --if present, remove this from chestSlotInUseHashMap after task is complete
+    --task.responseComputerID = nil --if present, this is who should get a response
+    --task.responseCode = nil --after funct is run: success == 200, partial success = 206, bad request structure = 400, internal error == 500
+    --task.responseData = nil --any data or error messages that need to be returned after the task
+    return task
+end
+function storageSystem.tasks.generateChestSlotInUseKey(chest, chestSlot)
+    return chest.name .. ":" .. chestSlot
+end
+
+
+function storageSystem.tasks.handleInputChestsTask()
+    --find slots in inventory chests that need to be deposited and create a task in the task queue for it
+    print("handling input chests")
+    while true do
+        --get a non-empty slot from the input chests
+        local inputChest, inputChestSlotIndex, avalibleItemCount, itemName = storageSystem.chestGroups.findNextChestSlotWithCriteria(storageSystem.chestGroups.inputChestList, storageSystem.chestGroups.isNonEmptySlot)
+        --make sure there is a non-empty chestSlot that isnt currently being used by another task
+        if(not inputChest or avalibleItemCount == 0 ) then
+            --nothing in the input chest, give it a second
+            os.sleep(3)
+        elseif(storageSystem.tasks.chestSlotInUseHashMap.get(storageSystem.tasks.generateChestSlotInUseKey(inputChest, inputChestSlotIndex))) then
+            --slot currently in use
+        else
+            --create a task on the queue to add these items
+            local task = storageSystem.tasks.newTask(function() return storageSystem.addToRAS(itemName,inputChest, inputChestSlotIndex, avalibleItemCount) end)
+            task.itemName = itemName
+            task.chestSlotInUse = storageSystem.tasks.generateChestSlotInUseKey(inputChest, inputChestSlotIndex)
+            storageSystem.tasks.chestSlotInUseHashMap.insert(task.chestSlotInUse, task)
+            storageSystem.tasks.todoQueue.push(task)
+        end
+    end
+end
+
+function storageSystem.tasks.checkAPIArguments(sentData, task, ...)
+    local args = {...}
+    for i, requirements in pairs(args) do
+        if(sentData[requirements.fieldName] == nil) then
+            task.response.code = 400
+            task.response.data = {errorMessage = "missing required field: " .. requirements.fieldName}
+            return false
+        elseif(type(sentData[requirements.fieldName]) ~= requirements.type) then
+            task.response.code = 400
+            task.response.data = {errorMessage = "incorrect type for field: " .. requirements.fieldName .. 
+                                ". Needs " .. requirements.type .. " not " .. type(sentData[requirements.fieldName])}
+            return false
+        end
+    end
+    return true
+end
+
+storageSystem.comms = {}
+storageSystem.comms.protocol = "kode-storage-server"
+storageSystem.comms.hostname = "kode-server-mountain"
+
+function storageSystem.tasks.handleNetworkItemStorageAPIMessages()
+    --open rednet on all modems
+    peripheral.find("modem", rednet.open)
+    rednet.host(storageSystem.comms.protocol, storageSystem.comms.hostname)
+
+    while true do
+        local computerID, data = rednet.receive(storageSystem.comms.protocol)
+        --create a task and put it on the task queue
+        local task = storageSystem.tasks.newTask()
+        task.responseComputerID = computerID
+
+        if(not data or not data.command) then
+            task.response.code = 400
+            task.response.data = {errorMessage = "unable to process empty data or command"}
+            storageSystem.tasks.doneQueue.push(task)
+        elseif(data.command == "deposit") then
+            if(not storageSystem.tasks.checkAPIArguments(data, task, 
+                                                {fieldName = "itemName", type = "string"},
+                                                {fieldName = "itemCount", type = "number"},
+                                                {fieldName = "sourceChestName", type = "string"},
+                                                {fieldName = "sourceChestSlot", type = "number"})) then
+                storageSystem.tasks.doneQueue.push(task)
+            else
+                task.funct = function() return storageSystem.addToRAS(data.itemName,data.sourceChestName, data.sourceChestSlot, data.itemCount) end
+                task.itemName = data.itemName
+                task.chestSlotInUse = storageSystem.tasks.generateChestSlotInUseKey(data.sourceChestName, data.sourceChestSlot)
+                storageSystem.tasks.chestSlotInUseHashMap.insert(task.chestSlotInUse, task)
+                storageSystem.tasks.todoQueue.push(task)
+            end
+        elseif(data.command == "withdrawl") then
+            if(not storageSystem.tasks.checkAPIArguments(data, task, 
+                                                {fieldName = "itemName", type = "string"},
+                                                {fieldName = "itemCount", type = "number"},
+                                                {fieldName = "targetChestName", type = "string"})) then
+                storageSystem.tasks.doneQueue.push(task)
+            else
+
+            end
+        end
+
+        --deposit itemName, itemCount, sourceChestName, sourceChestSlot, -> amount transfered
+        --withdrawl itemName, itemCount, targetChestName -? amount transfered
+        --getInventory ->get entire inventory which includes all item types and how many we have of each
+        --getInventory itemName -> only get inventory info for a specific item type
+        --verify //verify data in database compared to chests, report where wrong
+        --regenDB //delete DB and use current chest contents to generate a new DB
+    end
+
+end
+
+function storageSystem.tasks.handleToDoQueueTask()
+    while true do
+        if(not storageSystem.tasks.todoQueue.hasNext()) then
+            os.sleep(5)
+        else
+            local task = storageSystem.tasks.todoQueue.pop()
+
+            local responseCode, responseData = task.funct()
+
+            task.response.code = responseCode
+            task.response.data = responseData
+
+            storageSystem.tasks.doneQueue.push(task)
+        end
+    end
+end
+
+function storageSystem.tasks.handleDoneQueueTask()
+    while true do
+        if(not storageSystem.tasks.doneQueue.hasNext()) then
+            os.sleep(5)
+        else
+            local task = storageSystem.tasks.doneQueue.pop()
+
+            if(task.chestSlotInUse) then
+                storageSystem.tasks.chestSlotInUseHashMap.remove(task.chestSlotInUse)
+            end
+
+            if(task.itemName) then
+                --remove from itemNameHashMap TODO
+            end
+
+            if(task.response.code ~= 200) then
+                --log
+                print(textutils.serialize(task.response))
+            end
+
+            if(task.responseComputerID) then
+                --respond to the computer that send the API request
+                if(not rednet.send(task.responseComputerID, task.response, storageSystem.comms.protocol)) then
+                    --log
+                    print("message not sent to: " .. task.responseComputerID .. textutils.serialize(task.response))
+                end
+            end
+        end
+    end
+end
+
 
 local function mainAddingLoop()
     print("starting normal operations")
     while true do
-        local inputChestIndex, inputChestSlotIndex, avalibleItemCount, itemName = storageSystem.chestGroups.findNextChestSlotWithCriteria(storageSystem.chestGroups.inputChestList, storageSystem.chestGroups.isNonEmptySlot)
-        if((not (inputChestIndex == -1)) and avalibleItemCount > 0) then
-            storageSystem.addToRAS(itemName,storageSystem.chestGroups.inputChestList.get(inputChestIndex), inputChestSlotIndex, avalibleItemCount)
+        local inputChest, inputChestSlotIndex, avalibleItemCount, itemName = storageSystem.chestGroups.findNextChestSlotWithCriteria(storageSystem.chestGroups.inputChestList, storageSystem.chestGroups.isNonEmptySlot)
+        if(inputChest and avalibleItemCount > 0) then
+            storageSystem.addToRAS(itemName,inputChest, inputChestSlotIndex, avalibleItemCount)
             --do I need to make this work in parallel? saving the file will have to be in series
-        else
-            return
         end
     end
 end
-mainAddingLoop()
-os.sleep(5)
-storageSystem.removeFromRAS("minecraft:packed_ice", storageSystem.chestGroups.outputChestList, 2)
+
+parallel.waitForAny(storageSystem.tasks.handleInputChestsTask, storageSystem.tasks.handleToDoQueueTask, storageSystem.tasks.handleDoneQueueTask)
+--mainAddingLoop()
+--os.sleep(5)
+--storageSystem.removeFromRAS("minecraft:packed_ice", storageSystem.chestGroups.outputChestList, 2)
 --storageSystem.chestGroups.moveAllItemsInGroup(storageSystem.chestGroups.allRasChestList, storageSystem.chestGroups.outputChestList)
 
 
 --search input inventory thread --puts jobs in the job queue
---network inventory api thread --puts jobs in the job queue 
---process jobs thread
+--network item storage api thread --puts jobs in the job queue 
+--process jobs queue thread
 --process done jobs thread
+
+
+--NIS api
+--deposit itemName, itemCount, sourceChestName, sourceChestSlot, -> amount transfered
+--withdrawl itemName, itemCount, targetChestName -? amount transfered
+--getInventory ->get entire inventory which includes all item types and how many we have of each
+--getInventory itemName -> only get inventory info for a specific item type
+--verify //verify data in database compared to chests, report where wrong
+--regenDB //delete DB and use current chest contents to generate a new DB
+
+
+--responces
+--statusCode = success == 200, partial success = 206, bad request structure = 400, internal error == 500
+--error message if anything other than 200
