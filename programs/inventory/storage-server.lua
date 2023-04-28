@@ -55,33 +55,49 @@ function itemDB.initItemTableActions(itemTable)
         local key = itemTable.action.generateKey(chestName, chestSlot)
         return key, itemTable.recordHashMap.get(key)
     end
+    function itemTable.action.getCurrentRecord()
+        if(itemTable.tableData.currentRecordKey) then
+            return itemTable.recordHashMap.get(itemTable.tableData.currentRecordKey)
+        else
+            return nil
+        end
+    end
     function itemTable.action.calculateFreeSpace(record)
         return itemConstants[itemTable.name].stackSize - record.itemCount
     end
     function itemTable.action.getRecordWithFreeSpace()
-        if(itemTable.tableData.currentRecordKey) then
-            local currentRecord = itemTable.recordHashMap.get(itemTable.tableData.currentRecordKey)
-            if(currentRecord and currentRecord.itemCount < itemConstants[itemTable.name].stackSize) then
-                return currentRecord, itemTable.action.calculateFreeSpace(currentRecord)
-            end
+        local currentRecord = itemTable.action.getCurrentRecord()
+        if(currentRecord and currentRecord.itemCount < itemConstants[itemTable.name].stackSize) then
+            return currentRecord, itemTable.action.calculateFreeSpace(currentRecord)
+        else
+            return nil
         end
-        return nil
+    end
+    function itemTable.action._removeRecordWithKey(key)
+        local record = itemTable.recordHashMap.get(key)
+        if(record)then
+            itemTable.recordHashMap.remove(key)
+            itemTable.tableData.slotCount = itemTable.tableData.slotCount - 1
+            itemTable.tableData.itemCount = itemTable.tableData.itemCount - record.itemCount
+            itemTable.tableData.currentRecordKey = nil
+        end
     end
     function itemTable.action._removeRecord(record)
         local key = itemTable.action.generateKeyFromRecord(record)
-        itemTable.recordHashMap.remove(key)
+        itemTable.action._removeRecordWithKey(key)
     end
     function itemTable.action.removeRecord(chestName, chestSlot)
         local key = itemTable.action.generateKey(chestName, chestSlot)
-        itemTable.recordHashMap.remove(key)
+        itemTable.action._removeRecordWithKey(key)
     end
     function itemTable.action.addToRecord(record, itemCount)
         if(itemCount + record.itemCount >= itemConstants[itemTable.name].stackSize) then
             --filled up slot
-            record.itemCount = record.itemCount + itemConstants[itemTable.name].stackSize
-            itemTable.tableData.itemCount = itemTable.tableData.itemCount + itemConstants[itemTable.name].stackSize
+            local itemsToAdd = itemConstants[itemTable.name].stackSize - record.itemCount
+            record.itemCount = itemConstants[itemTable.name].stackSize
+            itemTable.tableData.itemCount = itemTable.tableData.itemCount + itemsToAdd
             itemTable.tableData.currentRecordKey = nil
-            return itemConstants[itemTable.name].stackSize
+            return itemsToAdd
         else
             --not filled up
             record.itemCount = record.itemCount + itemCount
@@ -96,13 +112,13 @@ function itemDB.initItemTableActions(itemTable)
         elseif(record.itemCount - itemCount == 0) then
             --freed up a slot
             itemTable.action._removeRecord(record)
-            itemTable.tableData.itemCount = itemTable.tableData.itemCount - itemCount
-            itemTable.tableData.currentRecordKey = nil
+            return true
         else
             --slot still has items
             record.itemCount = record.itemCount - itemCount
             itemTable.tableData.itemCount = itemTable.tableData.itemCount - itemCount
             itemTable.tableData.currentRecordKey = itemTable.action.generateKeyFromRecord(record)
+            return false
         end
     end
     function itemTable.action.setRecordItemCount(record, itemCount)
@@ -111,6 +127,21 @@ function itemDB.initItemTableActions(itemTable)
         elseif(itemCount < record.itemCount) then
             itemTable.action.removeFromRecord(record, record.itemCount - itemCount)
         end
+    end
+    function itemTable.action.fixRecord(record)
+        local pWrapChest = peripheral.wrap(record.chestName)
+        if(not pWrapChest) then
+            error("record for chest that does not exist: " + record.chestName)
+        end
+
+        local item = pWrapChest.getItemDetail(record.chestSlot)
+        if(not item or item.count == 0) then
+            --remove record
+            itemTable.action._removeRecord(record)
+            return 0 --item count
+        end
+        itemTable.action.setRecordItemCount(record, item.count)
+        return item.count
     end
 end
 --load table actions for preexisting tables
@@ -168,9 +199,9 @@ function storageSystem.chestGroups.createChestGroup(pName)
     end
     return chestList
 end
-storageSystem.chestGroups.inputChestList = storageSystem.chestGroups.createChestGroup("input-chests") --input
-storageSystem.chestGroups.outputChestList = storageSystem.chestGroups.createChestGroup("output-chests") --output
-storageSystem.chestGroups.allRasChestList = storageSystem.chestGroups.createChestGroup("all-ras-chests") --ras
+storageSystem.chestGroups.inputChestList = storageSystem.chestGroups.createChestGroup("input-chests")
+storageSystem.chestGroups.outputChestList = storageSystem.chestGroups.createChestGroup("output-chests")
+storageSystem.chestGroups.allRasChestList = storageSystem.chestGroups.createChestGroup("all-ras-chests")
 
 function storageSystem.chestGroups.initChestTableActions(chestTable)
     function chestTable.action.addChest(chestName, allRasIndex)
@@ -209,7 +240,7 @@ function storageSystem.chestGroups.chestDB.action.getAvalibleRasChests()
     return storageSystem.chestGroups.chestDB.tableHashMap.get("avalible-ras-chests")
 end
 
-function storageSystem.findFreeChestSlot()
+function storageSystem.chestGroups.findFreeRasChestSlot()
     local avaRasChestTable = storageSystem.chestGroups.chestDB.action.getAvalibleRasChests()
     for chestName, allRasIndex in pairs(avaRasChestTable.recordHashMap._data) do
         local chestObj = storageSystem.chestGroups.allRasChestList.get(allRasIndex)
@@ -241,12 +272,16 @@ function storageSystem.addToRAS(itemName, sourceChestObj, sourceChestSlot, sourc
     local targetRecord, freeSpace = itemTable.action.getRecordWithFreeSpace()
     if(not targetRecord or freeSpace == 0) then
         --find a new chest slot
-        local chestObj, slotIndex = storageSystem.findFreeChestSlot()
+        local chestObj, slotIndex = storageSystem.chestGroups.findFreeRasChestSlot()
         local key = nil
         key, targetRecord = itemTable.action.addNewRecord(chestObj.name, slotIndex, 0)
+        freeSpace = itemConstants[itemName].stackSize - targetRecord.itemCount 
     end
 
-    local itemsToTransfer = itemConstants[itemName].stackSize - targetRecord.itemCount
+    local itemsToTransfer = freeSpace
+    if(itemsToTransfer > sourceItemCount) then
+        itemsToTransfer = sourceItemCount
+    end
     local itemCountInSlotBeforeTransfer = targetRecord.itemCount
 
     --add to db record
@@ -255,118 +290,15 @@ function storageSystem.addToRAS(itemName, sourceChestObj, sourceChestSlot, sourc
     --do transfer between chests
     local itemsTransferedCount = sourceChestObj.pWrap.pushItems(targetRecord.chestName,sourceChestSlot, itemsPushingCount, targetRecord.chestSlot)
     if(itemsTransferedCount ~= itemsPushingCount) then
-        itemTable.action.setRecordItemCount(targetRecord, itemsTransferedCount + itemCountInSlotBeforeTransfer)
+        itemTable.action.fixRecord(targetRecord)
     end
 
     --only after successful transfer do we save
     itemTable.save()
 end
 
-local function removeItemsFromDB(itemName, chestName, chestSlot, itemCount) --old
-    expect(1, itemName, "string")
-    expect(2, chestName, "string")
-    expect(3, chestSlot, "number")
-    expect(4, itemCount, "number")
-
-    local itemTable = itemDB.action.getTable(itemName)
-    if(not itemTable) then
-        error("unable to find a table for " .. itemName)
-    end
-
-    local key, record = itemTable.action.getRecord(chestName, chestSlot)
-    if(not record) then
-        error("no record found matching: " .. key .. " for item: " .. itemName)
-    end
-    
-    if(itemCount > record.itemCount) then
-        error("unable to remove more items then what is held in the record for " .. itemTable.name .. " " .. key)
-    elseif(itemCount == record.itemCount) then
-        --remove record
-        itemTable.action.removeRecord(chestName, chestSlot)
-    else
-        --deduct from record
-        record.itemCount = record.itemCount - itemCount
-    end
-    itemTable.save()
-end
-
-
-
-local chestBuilder = {}
-function chestBuilder.new(permName, pWrap, length, lastSlot)
-    local chest = {
-        name = permName,
-        pWrap = pWrap,
-        length = length,
-        lastSlot = lastSlot or 0
-    }
-    return chest
-end
-
-local function isEmptySlot(slotObj)
-    return slotObj == nil or slotObj.count == 0
-end
-local function isNonEmptySlot(slotObj)
-    if(slotObj ~= nil) then
-        return slotObj.count > 0
-    end
-    return false
-end
-
-local function nextSlot(slotNumber, length)
-    if(length == 0)
-    then
-        return 0
-    elseif(slotNumber == length)
-    then
-        return 1
-    else
-        return slotNumber + 1
-    end
-end
-
-local function findNextSlotWithCriteria(iWrap, startSlot, criteriaFunc)
-    startSlot = startSlot or 1
-    local slotIndex = startSlot
-    local slotList = iWrap.list()
-    local inventorySize = iWrap.size()
-
-    repeat
-        if(criteriaFunc(slotList[slotIndex]))
-        then
-            --found a match
-            local slot = slotList[slotIndex]
-            local itemName = nil
-            local itemCount = 0
-            if(slot) then
-                itemCount = slot.count
-                itemName = slot.name
-            end
-            return slotIndex, itemCount, itemName
-        end
-        slotIndex = nextSlot(slotIndex, inventorySize)
-    until (slotIndex == startSlot)
-    return -1
-end
-local function findNextChestSlotWithCriteria(chestList, criteriaFunc)
+function storageSystem.chestGroups.dropIntoChestList(chestList, sourceName, sourceSlot, desiredAmount)
     local startPoint = chestList.currentIndex
-    local chestIndex = startPoint
-    repeat
-        local chest = chestList.get(chestIndex)
-        local slotIndex, itemCount, itemName = findNextSlotWithCriteria(chest.pWrap, nextSlot(chest.lastSlot, chest.length), criteriaFunc)
-        if(slotIndex > 0)
-        then
-            chest.lastSlot = slotIndex
-            return chestIndex, slotIndex, itemCount, itemName
-        end
-        chestIndex = chestList.nextIndex()
-    until (chestIndex == startPoint)
-    return -1, -1
-end
-
---needs editing since we need to know which chest it puts stuff into
-local function dropIntoChestList(chestList, sourceName, sourceSlot, desiredAmount)
-    local startPoint = chestList.lastIndex
     local chestIndex = startPoint
     local transferedAmount = 0
     local sourceWrap = peripheral.wrap(sourceName)
@@ -388,12 +320,147 @@ local function dropIntoChestList(chestList, sourceName, sourceSlot, desiredAmoun
     return transferedAmount
 end
 
+function storageSystem.removeFromRAS(itemName, targetChestList, desiredItemCount)
+    --return number of items transfered
+    local itemTable = itemDB.action.getTable(itemName)
+    if(not itemTable) then
+        return 0, "unable to find a table for " .. itemName
+    end
 
-print("starting normal operations")
-while true do
-    local inputChestIndex, inputChestSlotIndex, avalibleItemCount, itemName = findNextChestSlotWithCriteria(storageSystem.chestGroups.inputChestList, isNonEmptySlot)
-    if((not (inputChestIndex == -1)) and avalibleItemCount > 0) then
-        storageSystem.addToRAS(itemName,storageSystem.chestGroups.inputChestList.get(inputChestIndex), inputChestSlotIndex, avalibleItemCount)
-        --do I need to make this work in parallel? saving the file will have to be in series
+    local function removeFromRas(itemTable, targetChestList, currentRecord, desiredItemCount)
+        --determine number of items
+        local itemsToTransfer = currentRecord.itemCount
+        if(itemsToTransfer > desiredItemCount) then
+            itemsToTransfer = desiredItemCount
+        end
+        local itemCountInSlotBeforeTransfer = currentRecord.itemCount
+
+        --do db transaction
+        local isRecordRemoved = itemTable.action.removeFromRecord(currentRecord, itemsToTransfer)
+
+        --do transfer between chests
+        local itemsTransferedCount = storageSystem.chestGroups.dropIntoChestList(targetChestList, currentRecord.chestName, currentRecord.chestSlot, itemsToTransfer)
+        if(itemsToTransfer ~= itemsTransferedCount) then
+            --correct the record
+            if(isRecordRemoved) then
+                currentRecord.itemCount = 0
+                itemTable.action.addRecord(currentRecord)
+            end
+            itemTable.action.fixRecord(currentRecord)
+        end
+
+        --only save after successful transfer
+        itemTable.save()
+        return itemsTransferedCount
+    end
+
+    local itemsTransferedInTotal = 0
+
+    local currentRecord = itemTable.action.getCurrentRecord()
+    if(currentRecord and currentRecord.itemCount > 0) then
+        itemsTransferedInTotal = removeFromRas(itemTable, targetChestList, currentRecord, desiredItemCount)
+        if(itemsTransferedInTotal >= desiredItemCount) then
+            return
+        end
+    end
+
+    for key, record in pairs(itemTable.recordHashMap._data) do
+        itemsTransferedInTotal = itemsTransferedInTotal + removeFromRas(itemTable, targetChestList, record, desiredItemCount - itemsTransferedInTotal)
+        if(itemsTransferedInTotal >= desiredItemCount) then
+            return
+        end
     end
 end
+
+function storageSystem.chestGroups.isEmptySlot(slotObj)
+    return slotObj == nil or slotObj.count == 0
+end
+function storageSystem.chestGroups.isNonEmptySlot(slotObj)
+    if(slotObj ~= nil) then
+        return slotObj.count > 0
+    end
+    return false
+end
+
+function storageSystem.chestGroups.nextSlot(slotNumber, length)
+    if(length == 0)
+    then
+        return 0
+    elseif(slotNumber == length)
+    then
+        return 1
+    else
+        return slotNumber + 1
+    end
+end
+
+function storageSystem.chestGroups.findNextSlotWithCriteria(iWrap, startSlot, criteriaFunc)
+    startSlot = startSlot or 1
+    local slotIndex = startSlot
+    local slotList = iWrap.list()
+    local inventorySize = iWrap.size()
+
+    repeat
+        if(criteriaFunc(slotList[slotIndex]))
+        then
+            --found a match
+            local slot = slotList[slotIndex]
+            local itemName = nil
+            local itemCount = 0
+            if(slot) then
+                itemCount = slot.count
+                itemName = slot.name
+            end
+            return slotIndex, itemCount, itemName
+        end
+        slotIndex = storageSystem.chestGroups.nextSlot(slotIndex, inventorySize)
+    until (slotIndex == startSlot)
+    return -1
+end
+function storageSystem.chestGroups.findNextChestSlotWithCriteria(chestList, criteriaFunc)
+    local startPoint = chestList.currentIndex
+    local chestIndex = startPoint
+    repeat
+        local chest = chestList.get(chestIndex)
+        local slotIndex, itemCount, itemName = storageSystem.chestGroups.findNextSlotWithCriteria(chest.pWrap, storageSystem.chestGroups.nextSlot(chest.lastSlot, chest.length), criteriaFunc)
+        if(slotIndex > 0)
+        then
+            chest.lastSlot = slotIndex
+            return chestIndex, slotIndex, itemCount, itemName
+        end
+        chestIndex = chestList.nextIndex()
+    until (chestIndex == startPoint)
+    return -1, -1
+end
+
+function storageSystem.chestGroups.moveAllItemsInGroup(sourceChestList, targetChestList)
+    for _index, chest in pairs(sourceChestList._members) do
+        for slotIndex, slotObj in pairs(chest.pWrap.list())do
+            storageSystem.chestGroups.dropIntoChestList(targetChestList, chest.name, slotIndex)
+        end
+    end
+end
+
+
+local function mainAddingLoop()
+    print("starting normal operations")
+    while true do
+        local inputChestIndex, inputChestSlotIndex, avalibleItemCount, itemName = storageSystem.chestGroups.findNextChestSlotWithCriteria(storageSystem.chestGroups.inputChestList, storageSystem.chestGroups.isNonEmptySlot)
+        if((not (inputChestIndex == -1)) and avalibleItemCount > 0) then
+            storageSystem.addToRAS(itemName,storageSystem.chestGroups.inputChestList.get(inputChestIndex), inputChestSlotIndex, avalibleItemCount)
+            --do I need to make this work in parallel? saving the file will have to be in series
+        else
+            return
+        end
+    end
+end
+mainAddingLoop()
+os.sleep(5)
+storageSystem.removeFromRAS("minecraft:packed_ice", storageSystem.chestGroups.outputChestList, 2)
+--storageSystem.chestGroups.moveAllItemsInGroup(storageSystem.chestGroups.allRasChestList, storageSystem.chestGroups.outputChestList)
+
+
+--search input inventory thread --puts jobs in the job queue
+--network inventory api thread --puts jobs in the job queue 
+--process jobs thread
+--process done jobs thread

@@ -222,7 +222,7 @@ local function command_scan()
         if(not pList[sname])
         then
             local pWrap = peripheral.wrap(sname)
-            newPList[sname] = {name = sname, permName = sname, ptype = peripheral.getType(pWrap)}
+            newPList[sname] = {name = sname, permName = sname, ptype = peripheral.getType(pWrap), size = pWrap.size()}
         end
     end
 
