@@ -199,9 +199,10 @@ function storageSystem.chestGroups.createChestGroup(pName)
     end
     return chestList
 end
-storageSystem.chestGroups.inputChestList = storageSystem.chestGroups.createChestGroup("input-chests")
-storageSystem.chestGroups.outputChestList = storageSystem.chestGroups.createChestGroup("output-chests")
-storageSystem.chestGroups.allRasChestList = storageSystem.chestGroups.createChestGroup("all-ras-chests")
+storageSystem.chestGroups.inputHopperGroup = storageSystem.chestGroups.createChestGroup("s1-storage-input-hoppers")
+storageSystem.chestGroups["c1-storage-input-chests"] = storageSystem.chestGroups.createChestGroup("c1-storage-input-chests")
+storageSystem.chestGroups["c1-storage-output-chests"] = storageSystem.chestGroups.createChestGroup("c1-storage-output-chests")
+storageSystem.chestGroups.allRasChestList = storageSystem.chestGroups.createChestGroup("s1-storage-all-ras-chests")
 
 function storageSystem.chestGroups.initChestTableActions(chestTable)
     function chestTable.action.addChest(chestName, allRasIndex)
@@ -378,19 +379,28 @@ function storageSystem.removeFromRAS(itemName, targetChestList, desiredItemCount
 
     local itemsTransferedInTotal = 0
 
+    --try last/current record first, it may have a partially full slot that should go first
     local currentRecord = itemTable.action.getCurrentRecord()
     if(currentRecord and currentRecord.itemCount > 0) then
         itemsTransferedInTotal = removeFromRas(itemTable, targetChestList, currentRecord, desiredItemCount)
         if(itemsTransferedInTotal >= desiredItemCount) then
-            return
+            return 200
         end
     end
 
     for key, record in pairs(itemTable.recordHashMap._data) do
         itemsTransferedInTotal = itemsTransferedInTotal + removeFromRas(itemTable, targetChestList, record, desiredItemCount - itemsTransferedInTotal)
         if(itemsTransferedInTotal >= desiredItemCount) then
-            return
+            return 200
         end
+    end
+
+    if(itemsTransferedInTotal >= desiredItemCount) then
+        return 200
+    elseif(itemsTransferedInTotal > 0) then
+        return 206, {errorMessage = "unable to complete the order due to insufficient items", itemsTransferedCount = itemsTransferedInTotal}
+    else
+        return 500, {errorMessage = "there were no items of that type in the RAS storage system"}
     end
 end
 
@@ -489,7 +499,7 @@ function storageSystem.tasks.handleInputChestsTask()
     print("handling input chests")
     while true do
         --get a non-empty slot from the input chests
-        local inputChest, inputChestSlotIndex, avalibleItemCount, itemName = storageSystem.chestGroups.findNextChestSlotWithCriteria(storageSystem.chestGroups.inputChestList, storageSystem.chestGroups.isNonEmptySlot)
+        local inputChest, inputChestSlotIndex, avalibleItemCount, itemName = storageSystem.chestGroups.findNextChestSlotWithCriteria(storageSystem.chestGroups.inputHopperGroup, storageSystem.chestGroups.isNonEmptySlot)
         --make sure there is a non-empty chestSlot that isnt currently being used by another task
         if(not inputChest or avalibleItemCount == 0 ) then
             --nothing in the input chest, give it a second
@@ -561,10 +571,12 @@ function storageSystem.tasks.handleNetworkItemStorageAPIMessages()
             if(not storageSystem.tasks.checkAPIArguments(data, task, 
                                                 {fieldName = "itemName", type = "string"},
                                                 {fieldName = "itemCount", type = "number"},
-                                                {fieldName = "targetChestName", type = "string"})) then
+                                                {fieldName = "targetChestGroupName", type = "string"})) then
                 storageSystem.tasks.doneQueue.push(task)
             else
-
+                task.funct = function() return storageSystem.removeFromRAS(data.itemName, storageSystem.chestGroups[data.targetChestGroupName], data.itemCount) end
+                task.itemName = data.itemName
+                storageSystem.tasks.todoQueue.push(task)
             end
         end
 
@@ -627,10 +639,11 @@ function storageSystem.tasks.handleDoneQueueTask()
 end
 
 
+--no longer will work
 local function mainAddingLoop()
     print("starting normal operations")
     while true do
-        local inputChest, inputChestSlotIndex, avalibleItemCount, itemName = storageSystem.chestGroups.findNextChestSlotWithCriteria(storageSystem.chestGroups.inputChestList, storageSystem.chestGroups.isNonEmptySlot)
+        local inputChest, inputChestSlotIndex, avalibleItemCount, itemName = storageSystem.chestGroups.findNextChestSlotWithCriteria(storageSystem.chestGroups.inputHopperGroup, storageSystem.chestGroups.isNonEmptySlot)
         if(inputChest and avalibleItemCount > 0) then
             storageSystem.addToRAS(itemName,inputChest, inputChestSlotIndex, avalibleItemCount)
             --do I need to make this work in parallel? saving the file will have to be in series
@@ -663,3 +676,6 @@ parallel.waitForAny(storageSystem.tasks.handleInputChestsTask, storageSystem.tas
 --responces
 --statusCode = success == 200, partial success = 206, bad request structure = 400, internal error == 500
 --error message if anything other than 200
+
+
+--TODO finish writing API commands in handleAPITask thing
