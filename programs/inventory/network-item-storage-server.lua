@@ -263,8 +263,8 @@ end
 function storageSystem.chestGroups.findNextSlotWithCriteria(iWrap, startSlot, criteriaFunc)
     startSlot = startSlot or 1
     local slotIndex = startSlot
-    local slotList = iWrap.list()
     local inventorySize = iWrap.size()
+    local slotList = iWrap.list()
 
     repeat
         if(criteriaFunc(slotList[slotIndex]))
@@ -292,7 +292,6 @@ end
 function storageSystem.chestGroups.findFreeRasChestSlot(time)
     local avaRasChestTable = storageSystem.chestGroups.chestDB.action.getAvalibleRasChests()
     for chestName, allRasIndex in pairs(avaRasChestTable.recordHashMap._data) do
-        print("checking for free space in " .. chestName .. " time " .. os.clock() - time)
         local chestObj = storageSystem.chestGroups.allRasChestList.get(allRasIndex)
         local slotIndex, itemCount, itemName = storageSystem.chestGroups.findNextSlotWithCriteria(chestObj.pWrap, chestObj.lastSlot, storageSystem.chestGroups.isEmptySlot)
         if(slotIndex ~= -1) then
@@ -303,8 +302,6 @@ function storageSystem.chestGroups.findFreeRasChestSlot(time)
 end
 
 function storageSystem.addToRAS(itemName, sourceChestObj, sourceChestSlot, sourceItemCount)
-    local time = os.clock();
-    print("starting deposit")
 
     local function addToRASRecord(itemName, sourceChestObj, sourceChestSlot, sourceItemCount)
         --check if there is already a table for this item
@@ -313,7 +310,6 @@ function storageSystem.addToRAS(itemName, sourceChestObj, sourceChestSlot, sourc
             --create a new table
             itemTable = itemDB.action.createTable(itemName)
         end
-        print("trying to add " .. os.clock() - time)
 
         --local itemsLeftToTransfer = sourceItemCount
         local targetRecord, freeSpace = itemTable.action.getRecordWithFreeSpace()
@@ -324,7 +320,6 @@ function storageSystem.addToRAS(itemName, sourceChestObj, sourceChestSlot, sourc
             key, targetRecord = itemTable.action.addNewRecord(chestObj.name, slotIndex, 0)
             freeSpace = itemConstants[itemName].stackSize - targetRecord.itemCount 
         end
-        print("got free spot " .. os.clock() - time)
 
         local itemsToTransfer = freeSpace
         if(itemsToTransfer > sourceItemCount) then
@@ -334,18 +329,15 @@ function storageSystem.addToRAS(itemName, sourceChestObj, sourceChestSlot, sourc
 
         --add to db record
         local itemsPushingCount = itemTable.action.addToRecord(targetRecord, itemsToTransfer)
-        print("added to record " .. os.clock() - time)
 
         --do transfer between chests
         local itemsTransferedCount = sourceChestObj.pWrap.pushItems(targetRecord.chestName,sourceChestSlot, itemsPushingCount, targetRecord.chestSlot)
         if(itemsTransferedCount ~= itemsPushingCount) then
             itemTable.action.fixRecord(targetRecord)
         end
-        print("transfered into chests " .. os.clock() - time)
 
         --only after successful transfer do we save
-        itemTable.save() 
-        print("saved db " .. os.clock() - time)
+        itemTable.save()
         return itemsTransferedCount
     end
 
@@ -354,7 +346,6 @@ function storageSystem.addToRAS(itemName, sourceChestObj, sourceChestSlot, sourc
     while true do
         previousItemsTransferedCount = itemsTransferedCount
         itemsTransferedCount = itemsTransferedCount + addToRASRecord(itemName, sourceChestObj, sourceChestSlot, sourceItemCount)
-        print("transfered " .. itemsTransferedCount .. " of " .. sourceItemCount .. " time " .. os.clock() - time)
         if(itemsTransferedCount >= sourceItemCount) then
             --all good
             return 200
@@ -399,8 +390,6 @@ function storageSystem.removeFromRAS(itemName, targetChestList, desiredItemCount
     if(not itemTable) then
         return 400, "unable to find a table for " .. itemName
     end
-    print("start withdrawl")
-    local time = os.clock()
 
     local function removeFromRas(itemTable, targetChestList, currentRecord, desiredItemCount)
         --determine number of items
@@ -526,11 +515,11 @@ function storageSystem.tasks.handleInputChestsTask()
             os.sleep(3)
         elseif(storageSystem.tasks.chestSlotInUseHashMap.get(storageSystem.tasks.generateChestSlotInUseKey(inputChest, inputChestSlotIndex))) then
             --slot currently in use
+            print("slot in use")
         else
             --create a task on the queue to add these items
             local task = storageSystem.tasks.newTask(function() return storageSystem.addToRAS(itemName,inputChest, inputChestSlotIndex, avalibleItemCount) end)
             task.itemName = itemName
-            task.startTime = os.clock()
             task.chestSlotInUse = storageSystem.tasks.generateChestSlotInUseKey(inputChest, inputChestSlotIndex)
             storageSystem.tasks.chestSlotInUseHashMap.insert(task.chestSlotInUse, task)
             storageSystem.tasks.todoQueue.push(task)
@@ -570,8 +559,6 @@ function storageSystem.tasks.handleNetworkItemStorageAPIMessages()
         local computerID, data = rednet.receive(storageSystem.comms.protocol)
         --create a task and put it on the task queue
         local task = storageSystem.tasks.newTask()
-        print("time 0")
-        task.startTime = os.clock()
         task.responseComputerID = computerID
 
         if(not data or not data.command) then
@@ -630,7 +617,6 @@ function storageSystem.tasks.handleToDoQueueTask()
             local event = os.pullEvent(storageSystem.tasks.todoQueueEvent)
         else
             local task = storageSystem.tasks.todoQueue.pop()
-            print("recieved task in todo queue time:" .. (os.clock() - task.startTime))
 
             local responseCode, responseData = task.funct()
 
@@ -649,7 +635,6 @@ function storageSystem.tasks.handleDoneQueueTask()
             local event = os.pullEvent(storageSystem.tasks.doneQueueEvent)
         else
             local task = storageSystem.tasks.doneQueue.pop()
-            print("recieved task in done queue time:" .. (os.clock() - task.startTime))
 
             if(task.chestSlotInUse) then
                 storageSystem.tasks.chestSlotInUseHashMap.remove(task.chestSlotInUse)
