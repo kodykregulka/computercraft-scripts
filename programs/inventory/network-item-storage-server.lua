@@ -262,6 +262,9 @@ function storageSystem.chestGroups.findFreeRasChestSlot()
 end
 
 function storageSystem.addToRAS(itemName, sourceChestObj, sourceChestSlot, sourceItemCount)
+    local time = os.clock();
+    print("starting deposit")
+
     local function addToRASRecord(itemName, sourceChestObj, sourceChestSlot, sourceItemCount)
         --check if there is already a table for this item
         local itemTable = itemDB.action.getTable(itemName)
@@ -269,6 +272,7 @@ function storageSystem.addToRAS(itemName, sourceChestObj, sourceChestSlot, sourc
             --create a new table
             itemTable = itemDB.action.createTable(itemName)
         end
+        print("trying to add " .. os.clock() - time)
 
         --local itemsLeftToTransfer = sourceItemCount
         local targetRecord, freeSpace = itemTable.action.getRecordWithFreeSpace()
@@ -279,6 +283,7 @@ function storageSystem.addToRAS(itemName, sourceChestObj, sourceChestSlot, sourc
             key, targetRecord = itemTable.action.addNewRecord(chestObj.name, slotIndex, 0)
             freeSpace = itemConstants[itemName].stackSize - targetRecord.itemCount 
         end
+        print("got free spot " .. os.clock() - time)
 
         local itemsToTransfer = freeSpace
         if(itemsToTransfer > sourceItemCount) then
@@ -288,15 +293,18 @@ function storageSystem.addToRAS(itemName, sourceChestObj, sourceChestSlot, sourc
 
         --add to db record
         local itemsPushingCount = itemTable.action.addToRecord(targetRecord, itemsToTransfer)
+        print("added to record " .. os.clock() - time)
 
         --do transfer between chests
         local itemsTransferedCount = sourceChestObj.pWrap.pushItems(targetRecord.chestName,sourceChestSlot, itemsPushingCount, targetRecord.chestSlot)
         if(itemsTransferedCount ~= itemsPushingCount) then
             itemTable.action.fixRecord(targetRecord)
         end
+        print("transfered into chests " .. os.clock() - time)
 
         --only after successful transfer do we save
-        itemTable.save()
+        itemTable.save() 
+        print("saved db " .. os.clock() - time)
         return itemsTransferedCount
     end
 
@@ -347,8 +355,10 @@ function storageSystem.removeFromRAS(itemName, targetChestList, desiredItemCount
     --return number of items transfered
     local itemTable = itemDB.action.getTable(itemName)
     if(not itemTable) then
-        return 0, "unable to find a table for " .. itemName
+        return 400, "unable to find a table for " .. itemName
     end
+    print("start withdrawl")
+    local time = os.clock()
 
     local function removeFromRas(itemTable, targetChestList, currentRecord, desiredItemCount)
         --determine number of items
@@ -490,7 +500,15 @@ function storageSystem.tasks.newTask(funct, ...)
     return task
 end
 function storageSystem.tasks.generateChestSlotInUseKey(chest, chestSlot)
+    expect(1, chest, "table")
+    field(chest, "name", "string")
+    expect(2, chestSlot, "number")
     return chest.name .. ":" .. chestSlot
+end
+function storageSystem.tasks.generateChestSlotInUseKeyFromString(chestName, chestSlot)
+    expect(1, chestName, "string")
+    expect(2, chestSlot, "number")
+    return chestName .. ":" .. chestSlot
 end
 
 
@@ -510,6 +528,7 @@ function storageSystem.tasks.handleInputChestsTask()
             --create a task on the queue to add these items
             local task = storageSystem.tasks.newTask(function() return storageSystem.addToRAS(itemName,inputChest, inputChestSlotIndex, avalibleItemCount) end)
             task.itemName = itemName
+            task.startTime = os.clock()
             task.chestSlotInUse = storageSystem.tasks.generateChestSlotInUseKey(inputChest, inputChestSlotIndex)
             storageSystem.tasks.chestSlotInUseHashMap.insert(task.chestSlotInUse, task)
             storageSystem.tasks.todoQueue.push(task)
@@ -535,11 +554,12 @@ function storageSystem.tasks.checkAPIArguments(sentData, task, ...)
 end
 
 storageSystem.comms = {}
-storageSystem.comms.protocol = "kode-storage-server"
-storageSystem.comms.hostname = "kode-server-mountain"
+storageSystem.comms.protocol = "kode.nis"
+storageSystem.comms.hostname = "kode.mountainbase.nis_server"
 
 function storageSystem.tasks.handleNetworkItemStorageAPIMessages()
     --open rednet on all modems
+    print("listening for nis messages")
     peripheral.find("modem", rednet.open)
     rednet.host(storageSystem.comms.protocol, storageSystem.comms.hostname)
 
@@ -547,6 +567,8 @@ function storageSystem.tasks.handleNetworkItemStorageAPIMessages()
         local computerID, data = rednet.receive(storageSystem.comms.protocol)
         --create a task and put it on the task queue
         local task = storageSystem.tasks.newTask()
+        print("time 0")
+        task.startTime = os.clock()
         task.responseComputerID = computerID
 
         if(not data or not data.command) then
@@ -554,6 +576,7 @@ function storageSystem.tasks.handleNetworkItemStorageAPIMessages()
             task.response.data = {errorMessage = "unable to process empty data or command"}
             storageSystem.tasks.doneQueue.push(task)
         elseif(data.command == "deposit") then
+            print("deposit command recieved")
             if(not storageSystem.tasks.checkAPIArguments(data, task, 
                                                 {fieldName = "itemName", type = "string"},
                                                 {fieldName = "itemCount", type = "number"},
@@ -561,13 +584,14 @@ function storageSystem.tasks.handleNetworkItemStorageAPIMessages()
                                                 {fieldName = "sourceChestSlot", type = "number"})) then
                 storageSystem.tasks.doneQueue.push(task)
             else
-                task.funct = function() return storageSystem.addToRAS(data.itemName,data.sourceChestName, data.sourceChestSlot, data.itemCount) end
+                task.funct = function() return storageSystem.addToRAS(data.itemName,{name = data.sourceChestName, pWrap = peripheral.wrap(data.sourceChestName)}, data.sourceChestSlot, data.itemCount) end
                 task.itemName = data.itemName
-                task.chestSlotInUse = storageSystem.tasks.generateChestSlotInUseKey(data.sourceChestName, data.sourceChestSlot)
+                task.chestSlotInUse = storageSystem.tasks.generateChestSlotInUseKeyFromString(data.sourceChestName, data.sourceChestSlot)
                 storageSystem.tasks.chestSlotInUseHashMap.insert(task.chestSlotInUse, task)
                 storageSystem.tasks.todoQueue.push(task)
             end
         elseif(data.command == "withdrawl") then
+            print("withdrawl command recieved")
             if(not storageSystem.tasks.checkAPIArguments(data, task, 
                                                 {fieldName = "itemName", type = "string"},
                                                 {fieldName = "itemCount", type = "number"},
@@ -593,9 +617,10 @@ end
 function storageSystem.tasks.handleToDoQueueTask()
     while true do
         if(not storageSystem.tasks.todoQueue.hasNext()) then
-            os.sleep(5)
+            os.sleep(1)
         else
             local task = storageSystem.tasks.todoQueue.pop()
+            print("recieved task in todo queue time:" .. (os.clock() - task.startTime))
 
             local responseCode, responseData = task.funct()
 
@@ -613,6 +638,7 @@ function storageSystem.tasks.handleDoneQueueTask()
             os.sleep(5)
         else
             local task = storageSystem.tasks.doneQueue.pop()
+            print("recieved task in done queue time:" .. (os.clock() - task.startTime))
 
             if(task.chestSlotInUse) then
                 storageSystem.tasks.chestSlotInUseHashMap.remove(task.chestSlotInUse)
@@ -651,7 +677,7 @@ local function mainAddingLoop()
     end
 end
 
-parallel.waitForAny(storageSystem.tasks.handleInputChestsTask, storageSystem.tasks.handleToDoQueueTask, storageSystem.tasks.handleDoneQueueTask)
+parallel.waitForAny(storageSystem.tasks.handleInputChestsTask, storageSystem.tasks.handleToDoQueueTask, storageSystem.tasks.handleDoneQueueTask, storageSystem.tasks.handleNetworkItemStorageAPIMessages)
 --mainAddingLoop()
 --os.sleep(5)
 --storageSystem.removeFromRAS("minecraft:packed_ice", storageSystem.chestGroups.outputChestList, 2)
