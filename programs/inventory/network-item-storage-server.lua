@@ -496,6 +496,11 @@ function storageSystem.tasks.newTask(funct, ...)
     --task.responseData = nil --any data or error messages that need to be returned after the task
     return task
 end
+
+storageSystem.tasks.todoQueueEvent = "kode_nis_todo_queue"
+storageSystem.tasks.doneQueueEvent = "kode_nis_done_queue"
+
+
 function storageSystem.tasks.generateChestSlotInUseKey(chest, chestSlot)
     expect(1, chest, "table")
     field(chest, "name", "string")
@@ -529,6 +534,7 @@ function storageSystem.tasks.handleInputChestsTask()
             task.chestSlotInUse = storageSystem.tasks.generateChestSlotInUseKey(inputChest, inputChestSlotIndex)
             storageSystem.tasks.chestSlotInUseHashMap.insert(task.chestSlotInUse, task)
             storageSystem.tasks.todoQueue.push(task)
+            os.queueEvent(storageSystem.tasks.todoQueueEvent)
         end
     end
 end
@@ -572,6 +578,7 @@ function storageSystem.tasks.handleNetworkItemStorageAPIMessages()
             task.response.code = 400
             task.response.data = {errorMessage = "unable to process empty data or command"}
             storageSystem.tasks.doneQueue.push(task)
+            os.queueEvent(storageSystem.tasks.doneQueueEvent)
         elseif(data.command == "deposit") then
             print("deposit command recieved")
             if(not storageSystem.tasks.checkAPIArguments(data, task, 
@@ -580,12 +587,14 @@ function storageSystem.tasks.handleNetworkItemStorageAPIMessages()
                                                 {fieldName = "sourceChestName", type = "string"},
                                                 {fieldName = "sourceChestSlot", type = "number"})) then
                 storageSystem.tasks.doneQueue.push(task)
+                os.queueEvent(storageSystem.tasks.doneQueueEvent)
             else
                 task.funct = function() return storageSystem.addToRAS(data.itemName,{name = data.sourceChestName, pWrap = peripheral.wrap(data.sourceChestName)}, data.sourceChestSlot, data.itemCount) end
                 task.itemName = data.itemName
                 task.chestSlotInUse = storageSystem.tasks.generateChestSlotInUseKeyFromString(data.sourceChestName, data.sourceChestSlot)
                 storageSystem.tasks.chestSlotInUseHashMap.insert(task.chestSlotInUse, task)
                 storageSystem.tasks.todoQueue.push(task)
+                os.queueEvent(storageSystem.tasks.todoQueueEvent)
             end
         elseif(data.command == "withdrawl") then
             print("withdrawl command recieved")
@@ -594,10 +603,12 @@ function storageSystem.tasks.handleNetworkItemStorageAPIMessages()
                                                 {fieldName = "itemCount", type = "number"},
                                                 {fieldName = "targetChestGroupName", type = "string"})) then
                 storageSystem.tasks.doneQueue.push(task)
+                os.queueEvent(storageSystem.tasks.doneQueueEvent)
             else
                 task.funct = function() return storageSystem.removeFromRAS(data.itemName, storageSystem.chestGroups[data.targetChestGroupName], data.itemCount) end
                 task.itemName = data.itemName
                 storageSystem.tasks.todoQueue.push(task)
+                os.queueEvent(storageSystem.tasks.todoQueueEvent)
             end
         end
 
@@ -613,8 +624,10 @@ end
 
 function storageSystem.tasks.handleToDoQueueTask()
     while true do
+        
         if(not storageSystem.tasks.todoQueue.hasNext()) then
-            os.sleep(1)
+            --wait for todo queue event
+            local event = os.pullEvent(storageSystem.tasks.todoQueueEvent)
         else
             local task = storageSystem.tasks.todoQueue.pop()
             print("recieved task in todo queue time:" .. (os.clock() - task.startTime))
@@ -625,6 +638,7 @@ function storageSystem.tasks.handleToDoQueueTask()
             task.response.data = responseData
 
             storageSystem.tasks.doneQueue.push(task)
+            os.queueEvent(storageSystem.tasks.doneQueueEvent)
         end
     end
 end
@@ -632,7 +646,7 @@ end
 function storageSystem.tasks.handleDoneQueueTask()
     while true do
         if(not storageSystem.tasks.doneQueue.hasNext()) then
-            os.sleep(1)
+            local event = os.pullEvent(storageSystem.tasks.doneQueueEvent)
         else
             local task = storageSystem.tasks.doneQueue.pop()
             print("recieved task in done queue time:" .. (os.clock() - task.startTime))
@@ -660,6 +674,8 @@ function storageSystem.tasks.handleDoneQueueTask()
         end
     end
 end
+
+
 
 
 --no longer will work
