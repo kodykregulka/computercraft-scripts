@@ -177,7 +177,7 @@ function storageSystem.chestGroups.createChest(permName, pWrap, length, lastSlot
         name = permName,
         pWrap = pWrap,
         length = length,
-        lastSlot = lastSlot or 0
+        lastSlot = lastSlot or 1
     }
     return chest
 end
@@ -237,25 +237,66 @@ else
     until currentIndex == startIndex
     avaRasChestsTable.save()
 end
+
+function storageSystem.chestGroups.isEmptySlot(slotObj)
+    return slotObj == nil or slotObj.count == 0
+end
+function storageSystem.chestGroups.isNonEmptySlot(slotObj)
+    if(slotObj ~= nil) then
+        return slotObj.count > 0
+    end
+    return false
+end
+
+function storageSystem.chestGroups.nextSlot(slotNumber, length)
+    if(length == 0)
+    then
+        return 0
+    elseif(slotNumber == length)
+    then
+        return 1
+    else
+        return slotNumber + 1
+    end
+end
+
+function storageSystem.chestGroups.findNextSlotWithCriteria(iWrap, startSlot, criteriaFunc)
+    startSlot = startSlot or 1
+    local slotIndex = startSlot
+    local slotList = iWrap.list()
+    local inventorySize = iWrap.size()
+
+    repeat
+        if(criteriaFunc(slotList[slotIndex]))
+        then
+            --found a match
+            local slot = slotList[slotIndex]
+            local itemName = nil
+            local itemCount = 0
+            if(slot) then
+                itemCount = slot.count
+                itemName = slot.name
+            end
+            return slotIndex, itemCount, itemName
+        end
+        slotIndex = storageSystem.chestGroups.nextSlot(slotIndex, inventorySize)
+    until (slotIndex == startSlot)
+    return -1
+end
+
+
 function storageSystem.chestGroups.chestDB.action.getAvalibleRasChests()
     return storageSystem.chestGroups.chestDB.tableHashMap.get("avalible-ras-chests")
 end
 
-function storageSystem.chestGroups.findFreeRasChestSlot()
+function storageSystem.chestGroups.findFreeRasChestSlot(time)
     local avaRasChestTable = storageSystem.chestGroups.chestDB.action.getAvalibleRasChests()
     for chestName, allRasIndex in pairs(avaRasChestTable.recordHashMap._data) do
+        print("checking for free space in " .. chestName .. " time " .. os.clock() - time)
         local chestObj = storageSystem.chestGroups.allRasChestList.get(allRasIndex)
-        local chestData = chestObj.pWrap.list()
-        if(#chestData < chestObj.pWrap.size()) then
-            --there are some free slots, find them
-            if(#chestData == 0) then
-                return chestObj, 1
-            end
-            for slotIndex, item in pairs(chestData) do
-                if(chestData[slotIndex] == nil or chestData[slotIndex].count == 0) then
-                    return chestObj, slotIndex
-                end
-            end
+        local slotIndex, itemCount, itemName = storageSystem.chestGroups.findNextSlotWithCriteria(chestObj.pWrap, chestObj.lastSlot, storageSystem.chestGroups.isEmptySlot)
+        if(slotIndex ~= -1) then
+            return chestObj, slotIndex
         end
     end
     error("no free chest slots!!!!!")
@@ -278,7 +319,7 @@ function storageSystem.addToRAS(itemName, sourceChestObj, sourceChestSlot, sourc
         local targetRecord, freeSpace = itemTable.action.getRecordWithFreeSpace()
         if(not targetRecord or freeSpace == 0) then
             --find a new chest slot
-            local chestObj, slotIndex = storageSystem.chestGroups.findFreeRasChestSlot()
+            local chestObj, slotIndex = storageSystem.chestGroups.findFreeRasChestSlot(time)
             local key = nil
             key, targetRecord = itemTable.action.addNewRecord(chestObj.name, slotIndex, 0)
             freeSpace = itemConstants[itemName].stackSize - targetRecord.itemCount 
@@ -313,6 +354,7 @@ function storageSystem.addToRAS(itemName, sourceChestObj, sourceChestSlot, sourc
     while true do
         previousItemsTransferedCount = itemsTransferedCount
         itemsTransferedCount = itemsTransferedCount + addToRASRecord(itemName, sourceChestObj, sourceChestSlot, sourceItemCount)
+        print("transfered " .. itemsTransferedCount .. " of " .. sourceItemCount .. " time " .. os.clock() - time)
         if(itemsTransferedCount >= sourceItemCount) then
             --all good
             return 200
@@ -414,51 +456,6 @@ function storageSystem.removeFromRAS(itemName, targetChestList, desiredItemCount
     end
 end
 
-function storageSystem.chestGroups.isEmptySlot(slotObj)
-    return slotObj == nil or slotObj.count == 0
-end
-function storageSystem.chestGroups.isNonEmptySlot(slotObj)
-    if(slotObj ~= nil) then
-        return slotObj.count > 0
-    end
-    return false
-end
-
-function storageSystem.chestGroups.nextSlot(slotNumber, length)
-    if(length == 0)
-    then
-        return 0
-    elseif(slotNumber == length)
-    then
-        return 1
-    else
-        return slotNumber + 1
-    end
-end
-
-function storageSystem.chestGroups.findNextSlotWithCriteria(iWrap, startSlot, criteriaFunc)
-    startSlot = startSlot or 1
-    local slotIndex = startSlot
-    local slotList = iWrap.list()
-    local inventorySize = iWrap.size()
-
-    repeat
-        if(criteriaFunc(slotList[slotIndex]))
-        then
-            --found a match
-            local slot = slotList[slotIndex]
-            local itemName = nil
-            local itemCount = 0
-            if(slot) then
-                itemCount = slot.count
-                itemName = slot.name
-            end
-            return slotIndex, itemCount, itemName
-        end
-        slotIndex = storageSystem.chestGroups.nextSlot(slotIndex, inventorySize)
-    until (slotIndex == startSlot)
-    return -1
-end
 function storageSystem.chestGroups.findNextChestSlotWithCriteria(chestList, criteriaFunc)
     local startPoint = chestList.currentIndex
     local chestIndex = startPoint
@@ -635,7 +632,7 @@ end
 function storageSystem.tasks.handleDoneQueueTask()
     while true do
         if(not storageSystem.tasks.doneQueue.hasNext()) then
-            os.sleep(5)
+            os.sleep(1)
         else
             local task = storageSystem.tasks.doneQueue.pop()
             print("recieved task in done queue time:" .. (os.clock() - task.startTime))
