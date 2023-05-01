@@ -504,7 +504,7 @@ end
 
 
 function storageSystem.tasks.handleInputChestsTask()
-    --find slots in inventory chests that need to be deposited and create a task in the task queue for it
+    --find slots in inventory chests that need to be puted and create a task in the task queue for it
     print("handling input chests")
     while true do
         --get a non-empty slot from the input chests
@@ -515,10 +515,10 @@ function storageSystem.tasks.handleInputChestsTask()
             os.sleep(3)
         elseif(storageSystem.tasks.chestSlotInUseHashMap.get(storageSystem.tasks.generateChestSlotInUseKey(inputChest, inputChestSlotIndex))) then
             --slot currently in use
-            print("slot in use")
         else
             --create a task on the queue to add these items
             local task = storageSystem.tasks.newTask(function() return storageSystem.addToRAS(itemName,inputChest, inputChestSlotIndex, avalibleItemCount) end)
+            task.name = "input-chests"
             task.itemName = itemName
             task.chestSlotInUse = storageSystem.tasks.generateChestSlotInUseKey(inputChest, inputChestSlotIndex)
             storageSystem.tasks.chestSlotInUseHashMap.insert(task.chestSlotInUse, task)
@@ -566,25 +566,9 @@ function storageSystem.tasks.handleNetworkItemStorageAPIMessages()
             task.response.data = {errorMessage = "unable to process empty data or command"}
             storageSystem.tasks.doneQueue.push(task)
             os.queueEvent(storageSystem.tasks.doneQueueEvent)
-        elseif(data.command == "deposit") then
-            print("deposit command recieved")
-            if(not storageSystem.tasks.checkAPIArguments(data, task, 
-                                                {fieldName = "itemName", type = "string"},
-                                                {fieldName = "itemCount", type = "number"},
-                                                {fieldName = "sourceChestName", type = "string"},
-                                                {fieldName = "sourceChestSlot", type = "number"})) then
-                storageSystem.tasks.doneQueue.push(task)
-                os.queueEvent(storageSystem.tasks.doneQueueEvent)
-            else
-                task.funct = function() return storageSystem.addToRAS(data.itemName,{name = data.sourceChestName, pWrap = peripheral.wrap(data.sourceChestName)}, data.sourceChestSlot, data.itemCount) end
-                task.itemName = data.itemName
-                task.chestSlotInUse = storageSystem.tasks.generateChestSlotInUseKeyFromString(data.sourceChestName, data.sourceChestSlot)
-                storageSystem.tasks.chestSlotInUseHashMap.insert(task.chestSlotInUse, task)
-                storageSystem.tasks.todoQueue.push(task)
-                os.queueEvent(storageSystem.tasks.todoQueueEvent)
-            end
-        elseif(data.command == "withdrawl") then
-            print("withdrawl command recieved")
+        elseif(data.command == "get") then
+            print("get command recieved")
+            task.name = "get"
             if(not storageSystem.tasks.checkAPIArguments(data, task, 
                                                 {fieldName = "itemName", type = "string"},
                                                 {fieldName = "itemCount", type = "number"},
@@ -597,10 +581,23 @@ function storageSystem.tasks.handleNetworkItemStorageAPIMessages()
                 storageSystem.tasks.todoQueue.push(task)
                 os.queueEvent(storageSystem.tasks.todoQueueEvent)
             end
+        elseif(data.command == "read") then
+            --can specify an item or get the whole itemDB
+        elseif(data.command == "new-client") then
+
+        elseif(data.command == "client-online") then
+            --client just turned on, check if they need to update their program files and respond accordingly
+        elseif(data.command == "verify-db") then
+            --verify if db is correct, report any incorrectness
+
+        elseif(data.command == "fix-db") then
+            --attempt to fix any incorrect values in the item and chest db
+        elseif(data.command == "regenerate-db") then
+            --toss out old db files and regenerate new ones
         end
 
-        --deposit itemName, itemCount, sourceChestName, sourceChestSlot, -> amount transfered
-        --withdrawl itemName, itemCount, targetChestName -? amount transfered
+        --put itemName, itemCount, sourceChestName, sourceChestSlot, -> amount transfered
+        --get itemName, itemCount, targetChestName -? amount transfered
         --getInventory ->get entire inventory which includes all item types and how many we have of each
         --getInventory itemName -> only get inventory info for a specific item type
         --verify //verify data in database compared to chests, report where wrong
@@ -646,7 +643,11 @@ function storageSystem.tasks.handleDoneQueueTask()
 
             if(task.response.code ~= 200) then
                 --log
-                print(textutils.serialize(task.response))
+                if(task.name and task.name == "input-chests") then
+                    --dont log input chest events
+                else
+                    print(textutils.serialize(task.response))
+                end
             end
 
             if(task.responseComputerID) then
@@ -689,8 +690,8 @@ parallel.waitForAny(storageSystem.tasks.handleInputChestsTask, storageSystem.tas
 
 
 --NIS api
---deposit itemName, itemCount, sourceChestName, sourceChestSlot, -> amount transfered
---withdrawl itemName, itemCount, targetChestName -? amount transfered
+--put itemName, itemCount, sourceChestName, sourceChestSlot, -> amount transfered
+--get itemName, itemCount, targetChestName -? amount transfered
 --getInventory ->get entire inventory which includes all item types and how many we have of each
 --getInventory itemName -> only get inventory info for a specific item type
 --verify //verify data in database compared to chests, report where wrong

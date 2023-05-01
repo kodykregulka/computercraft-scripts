@@ -42,6 +42,7 @@ function storageSystem.chestGroups.createChestGroup(pName)
     end
     return chestList
 end
+storageSystem.chestGroups.inputHopperGroup = storageSystem.chestGroups.createChestGroup("s1-storage-input-hoppers")
 storageSystem.chestGroups.inputChestGroup = storageSystem.chestGroups.createChestGroup("c1-storage-input-chests")
 storageSystem.chestGroups.outputChestGroup = storageSystem.chestGroups.createChestGroup("c1-storage-output-chests")
 
@@ -144,33 +145,63 @@ local function sendCommand(data)
     end
 end
 
-
-local function handle_deposit(args)
-    --just dump everything in input chests
-    while true do
-        local inputChest, inputChestSlotIndex, avalibleItemCount, itemName = storageSystem.chestGroups.findNextChestSlotWithCriteria(storageSystem.chestGroups.inputChestGroup, storageSystem.chestGroups.isNonEmptySlot)
-        if(inputChest and avalibleItemCount > 0) then
-            local dataMessage = {}
-            dataMessage.command = "deposit"
-            dataMessage.itemName = itemName
-            dataMessage.itemCount = avalibleItemCount
-            dataMessage.sourceChestName = inputChest.name
-            dataMessage.sourceChestSlot = inputChestSlotIndex
-            print(textutils.serialize(dataMessage))
-            sendCommand(dataMessage)
+function storageSystem.chestGroups.checkIfChestContainsItems(chestList)
+    local startPoint = chestList.currentIndex
+    local chestIndex = startPoint
+    repeat
+        local chest = chestList.get(chestIndex)
+        if(chest.pWrap and #chest.pWrap.list() > 0) then
+            return true
         else
-            print("done depositing")
-            return
+            chestIndex = chestList.nextIndex()
+        end
+    until (chestIndex == startPoint)
+    return false
+end
+
+function storageSystem.chestGroups.dropIntoChestList(chestList, sourceChestObj, sourceSlot, desiredAmount)
+    local startPoint = chestList.currentIndex
+    local chestIndex = startPoint
+    local transferedAmount = 0
+    local sourceSlotInfo = sourceChestObj.pWrap.getItemDetail(sourceSlot)
+    if(sourceSlotInfo == nil) 
+    then
+        --nothing left to do, it is already empty
+        return 0
+    end
+    desiredAmount = desiredAmount or sourceSlotInfo.count
+    repeat
+        local transferedAmount = transferedAmount + chestList.get(chestIndex).pWrap.pullItems(sourceChestObj.name, sourceSlot, desiredAmount - transferedAmount)
+        if(transferedAmount >= desiredAmount)then
+            return transferedAmount
+        else
+            chestIndex = chestList.nextIndex()
+        end
+    until (chestIndex == startPoint)
+    return transferedAmount
+end
+
+function storageSystem.chestGroups.moveAllItemsInGroup(sourceChestList, targetChestList)
+    for _index, chest in pairs(sourceChestList._members) do
+        for slotIndex, slotObj in pairs(chest.pWrap.list())do
+            storageSystem.chestGroups.dropIntoChestList(targetChestList, chest, slotIndex)
         end
     end
 end
 
-local function handle_withdrawl(args)
+local function handle_put(args)
+    --just dump everything in input chests
+    while(storageSystem.chestGroups.checkIfChestContainsItems(storageSystem.chestGroups.inputChestGroup)) do
+        storageSystem.chestGroups.moveAllItemsInGroup(storageSystem.chestGroups.inputChestGroup, storageSystem.chestGroups.inputHopperGroup)
+    end
+end
+
+local function handle_get(args)
     local dataMessage = {}
-    dataMessage.command = "withdrawl"
+    dataMessage.command = "get"
     dataMessage.itemName = args[2]
     if(not dataMessage.itemName) then
-        print("what item would you like to withdrawl?")
+        print("what item would you like to get?")
         dataMessage.itemName = read()
     end
     dataMessage.itemCount = args[3]
@@ -208,8 +239,8 @@ local function splitString (inputstr, sep)
 local function processCommand(command, args)
 
     local case = {
-        ["deposit"] = handle_deposit,
-        ["withdrawl"] = handle_withdrawl,
+        ["put"] = handle_put,
+        ["get"] = handle_get,
         ["read"] = handle_read,
         ["quit"] = handle_quit,
         ["q"] = handle_quit,
