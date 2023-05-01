@@ -15,9 +15,9 @@ pnetworkFile.close()
 
 local storageSystem = {}
 storageSystem.chestGroups = {}
-function storageSystem.chestGroups.createChest(permName, pWrap, length, lastSlot)
+function storageSystem.chestGroups.createChest(name, pWrap, length, lastSlot)
     local chest = {
-        name = permName,
+        name = name,
         pWrap = pWrap,
         length = length,
         lastSlot = lastSlot or 0
@@ -30,10 +30,10 @@ function storageSystem.chestGroups.createChestGroup(pName)
     for _name, configChest in pairs(pnetworkConfig.groupList[pName].members) do
         if(configChest)
         then
-            local tempWrap = peripheral.wrap(configChest.permName)
+            local tempWrap = peripheral.wrap(configChest.name)
             chestList.add(
                 storageSystem.chestGroups.createChest(
-                    configChest.permName, 
+                    configChest.name, 
                     tempWrap, 
                     tempWrap.size()
                 )

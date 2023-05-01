@@ -8,9 +8,9 @@ local pnetworkFile = fs.open("/pnetwork_config.json", "r")
 local pnetworkConfig = textutils.unserialize(pnetworkFile.readAll())
 
 local chestBuilder = {}
-function chestBuilder.new(permName, pWrap, length, lastSlot)
+function chestBuilder.new(name, pWrap, length, lastSlot)
     local chest = {
-        name = permName,
+        name = name,
         pWrap = pWrap,
         length = length,
         lastSlot = lastSlot or 0
@@ -24,10 +24,10 @@ local function groupBuilder(pName)
     for _name, configChest in pairs(pnetworkConfig.groupList[pName].members) do
         if(configChest)
         then
-            local tempWrap = peripheral.wrap(configChest.permName)
+            local tempWrap = peripheral.wrap(configChest.name)
             chestList.add(
                 chestBuilder.new(
-                    configChest.permName, 
+                    configChest.name, 
                     tempWrap, 
                     tempWrap.size()
                 )

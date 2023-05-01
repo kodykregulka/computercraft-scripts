@@ -253,9 +253,9 @@ local pnetworkConfig = textutils.unserialize(pnetworkFile.readAll())
 local log = logBuilder.new(dataDir .. "/network-furnace-server.log", "", true, true)
 
 local chestBuilder = {}
-function chestBuilder.new(permName, pWrap, length, lastSlot)
+function chestBuilder.new(name, pWrap, length, lastSlot)
     local chest = {
-        name = permName,
+        name = name,
         pWrap = pWrap,
         length = length,
         lastSlot = lastSlot or 0
@@ -269,10 +269,10 @@ local i = 1
 for _name, configChest in pairs(pnetworkConfig.groupList["input"]._members) do
     if(configChest)
     then
-        local tempWrap = peripheral.wrap(configChest.permName)
+        local tempWrap = peripheral.wrap(configChest.name)
         inputChestList.add(
             chestBuilder.new(
-                configChest.permName, 
+                configChest.name, 
                 tempWrap, 
                 tempWrap.size()
             )
@@ -283,16 +283,17 @@ end
 --reserve chests (for reserving items that belong to multi-itemType jobs)
 local reserveChestList = listBuilder.new("reserve chests")
 for _name, configChest in pairs(pnetworkConfig.groupList["reserve"]._members) do
-    --reserveChestList[configChest.permName] = peripheral.wrap(configChest.permName)
-    local tempWrap = peripheral.wrap(configChest.permName)
+    --reserveChestList[configChest.name] = peripheral.wrap(configChest.name)
+    local tempWrap = peripheral.wrap(configChest.name)
     reserveChestList.add(
         chestBuilder.new(
-            configChest.permName, 
+            configChest.name, 
             tempWrap, 
             tempWrap.size()
         )
     )
 end
+
 local function insertIntoReserveChests(sourceName, sourceSlot, desiredAmount)
     local chestIndex, slotIndex = findNextChestSlotWithCriteria(reserveChestList, isEmptySlot)
     local transferedAmount = reserveChestList.get(chestIndex).pWrap.pullItems(sourceName, sourceSlot, desiredAmount, slotIndex)
@@ -316,10 +317,10 @@ end
 --output chests
 local outputChestList = listBuilder.new("output chests")
 for _name, configChest in pairs(pnetworkConfig.groupList["output"]._members) do
-    local tempWrap = peripheral.wrap(configChest.permName)
+    local tempWrap = peripheral.wrap(configChest.name)
     outputChestList.add(
         chestBuilder.new(
-            configChest.permName, 
+            configChest.name, 
             tempWrap, 
             tempWrap.size()
         )
@@ -330,11 +331,11 @@ end
 --fuel chests
 local fuelChestList = listBuilder.new("fuel chests")
 for _name, configChest in pairs(pnetworkConfig.groupList["fuel"]._members) do
-    --fuelChestList[configChest.permName] = peripheral.wrap(configChest.permName)
-    local tempWrap = peripheral.wrap(configChest.permName)
+    --fuelChestList[configChest.name] = peripheral.wrap(configChest.name)
+    local tempWrap = peripheral.wrap(configChest.name)
     fuelChestList.add(
         chestBuilder.new(
-            configChest.permName, 
+            configChest.name, 
             tempWrap, 
             tempWrap.size()
         )
@@ -348,8 +349,8 @@ local avalibleFurnaceQueue = queueBuilder.new()
 local furnaceBuilder = {}
 function furnaceBuilder.new(config)
     local furnace = {}
-    furnace.name = config.permName
-    furnace.pWrap = peripheral.wrap(config.permName)
+    furnace.name = config.name
+    furnace.pWrap = peripheral.wrap(config.name)
 
     function furnace.addFuel(chestObj, slotIndex, itemCount)
         return furnace.pWrap.pullItems(chestObj.name, slotIndex, itemCount, 2)
@@ -478,7 +479,8 @@ function jobBuilder.new(furnace, fuelChestObj, fuelChestSlotIndex, fuelCount, fu
         if(transferedInput == job.taskInProgress.itemCount) then
             --success
             local timerID = os.startTimer(job.taskInProgress.itemCount*10)
-            if(furnace.pWrap.getItemDetail(2).name == "minecraft:bucket")then
+            local fuelSlotObj = furnace.pWrap.getItemDetail(2)
+            if(fuelSlotObj and fuelSlotObj.name == "minecraft:bucket")then
                 --remove empty bucket
                 dropIntoChestList(fuelChestList, furnace.name, 2)
             end
