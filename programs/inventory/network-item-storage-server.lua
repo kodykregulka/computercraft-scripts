@@ -16,6 +16,81 @@ local databaseBuilder = require(settings.get("require.api_path") .. "utils.disk-
 local logBuilder = require(settings.get("require.api_path") .. "utils.log")
 local itemConstants = require(settings.get("require.api_path") .. "constants.minecraft-items")
 
+local storageSystem = {}
+storageSystem.config = {}
+storageSystem.config.data = {}
+storageSystem.config.fileName = "nis-server.config"
+storageSystem.config.dirName = "/data/network-item-storage"
+function storageSystem.config.setFileName(filename)
+    local resolvedFileName = shell.resolve(filename)
+    storageSystem.config.fileName = fs.getName(resolvedFileName)
+    storageSystem.config.dirName = fs.getDir(resolvedFileName)
+end
+function storageSystem.config.getResolvedFileName()
+    return shell.resolve(storageSystem.config.dirName .. "/" .. storageSystem.config.fileName)
+end
+function storageSystem.config.create()
+    storageSystem.config.data = {}
+    storageSystem.config.data.serverName = "kode.new.nis-server"
+    storageSystem.config.data.serverProtocol = "kode.nis.server"
+    storageSystem.config.data.clientProtocol = "kode.new.nis"
+    storageSystem.config.data.timeout = 15
+    storageSystem.config.data.clientList = {}
+end
+function storageSystem.config.setServerName(name)
+    storageSystem.config.data.serverName = "kode." .. name .. ".nis-server"
+    storageSystem.config.data.clientProtocol = "kode." .. name .. ".nis"
+end
+function storageSystem.config.load(filename)
+    if(filename) then
+        storageSystem.config.setFileName(filename)
+    end
+    local resolvedFileName = storageSystem.config.getResolvedFileName()
+    if(not fs.exists(resolvedFileName)) then
+        return false, "file did not exist at: " .. resolvedFileName
+    end
+    local file = fs.open(resolvedFileName, "r")
+    storageSystem.config.data = textutils.unserialize(file.readAll())
+    file.close()
+end
+function storageSystem.config.save(filename)
+    if(filename) then
+        storageSystem.config.setFileName(filename)
+    end
+
+    local resolvedFileName = storageSystem.config.getResolvedFileName()
+    local file = fs.open(resolvedFileName, "w")
+    file.write(textutils.serialize(storageSystem.config.data))
+    file.close()
+end
+
+--setup config if not already setup
+if(fs.exists(storageSystem.config.getResolvedFileName()))then
+    storageSystem.config.load()
+    if(not storageSystem.config.data) then
+        error("Unable to read config file at: " .. storageSystem.config.getResolvedFileName())
+    end
+    rednet.host(storageSystem.config.data.serverProtocol, storageSystem.config.data.serverName)
+    rednet.host(storageSystem.config.data.clientProtocol, storageSystem.config.data.serverName)
+else
+    print("Server config not present")
+    print("Would you like to setup a new server? (y/n)")
+    local answer = read()
+    if(answer == "y" or answer == "yes") then
+        --storageSystem.setupNewClient()
+        storageSystem.config.create()
+        print("what do you want the server to be called?")
+        local input = read()
+        if(input and input ~= "") then storageSystem.config.setServerName(input) else error("Invalid server name") end
+        rednet.host(storageSystem.config.data.serverProtocol, storageSystem.config.data.serverName)
+        rednet.host(storageSystem.config.data.clientProtocol, storageSystem.config.data.serverName)
+        storageSystem.config.save()
+    else
+        print("please fix server config and try again")
+        os.exit()
+    end
+end
+
 print("setting up item DB")
 local itemDBDirName = "/data/storage-server/item-db"
 local itemDB = nil
@@ -166,11 +241,17 @@ end
 
 print("load pnetwork config")
 --load pnetwork chest config
-local pnetworkFile = fs.open("/data/storage-server/pnetwork_config.json", "r")
+local pnetworkFileName = "/data/storage-server/pnetwork_config.json"
+local pnetworkFile = fs.open(pnetworkFileName, "r")
 local pnetworkConfig = textutils.unserialize(pnetworkFile.readAll())
 pnetworkFile.close()
 
-local storageSystem = {}
+local function savePnetworkConfig()
+    local pnetworkFile = fs.open(pnetworkFileName, "w")
+    pnetworkFile.write(textutils.serialize(pnetworkConfig))
+    pnetworkFile.close()
+end
+
 storageSystem.chestGroups = {}
 function storageSystem.chestGroups.createChest(name, pWrap, length, lastSlot)
     local chest = {
@@ -184,7 +265,7 @@ end
 function storageSystem.chestGroups.createChestGroup(pName)
     local chestList = listBuilder.new(pName)
     local i = 1
-    for _name, configChest in pairs(pnetworkConfig.groupList[pName].members) do
+    for _name, configChest in pairs(pnetworkConfig.groupList[pName]._members) do
         if(configChest)
         then
             local tempWrap = peripheral.wrap(configChest.name)
@@ -199,10 +280,10 @@ function storageSystem.chestGroups.createChestGroup(pName)
     end
     return chestList
 end
-storageSystem.chestGroups.inputHopperGroup = storageSystem.chestGroups.createChestGroup("s1-storage-input-hoppers")
-storageSystem.chestGroups["c1-storage-input-chests"] = storageSystem.chestGroups.createChestGroup("c1-storage-input-chests")
-storageSystem.chestGroups["c1-storage-output-chests"] = storageSystem.chestGroups.createChestGroup("c1-storage-output-chests")
-storageSystem.chestGroups.allRasChestList = storageSystem.chestGroups.createChestGroup("s1-storage-all-ras-chests")
+storageSystem.chestGroups.inputChestGroup = storageSystem.chestGroups.createChestGroup(storageSystem.config.data.serverName .. "-input")
+--storageSystem.chestGroups["c1-storage-input-chests"] = storageSystem.chestGroups.createChestGroup("c1-storage-input-chests")
+--storageSystem.chestGroups["c1-storage-output-chests"] = storageSystem.chestGroups.createChestGroup("c1-storage-output-chests")
+storageSystem.chestGroups.rasChestGroup = storageSystem.chestGroups.createChestGroup(storageSystem.config.data.serverName .. "-ras")
 
 function storageSystem.chestGroups.initChestTableActions(chestTable)
     function chestTable.action.addChest(chestName, allRasIndex)
@@ -225,15 +306,15 @@ else
     storageSystem.chestGroups.initChestTableActions(avaRasChestsTable)
 
     --add all avalible chests in rasChestList
-    local startIndex = storageSystem.chestGroups.allRasChestList.currentIndex
-    local currentIndex = storageSystem.chestGroups.allRasChestList.currentIndex
+    local startIndex = storageSystem.chestGroups.rasChestGroup.currentIndex
+    local currentIndex = storageSystem.chestGroups.rasChestGroup.currentIndex
     repeat
-        local chestObj = storageSystem.chestGroups.allRasChestList.get(currentIndex)
+        local chestObj = storageSystem.chestGroups.rasChestGroup.get(currentIndex)
         if(#chestObj.pWrap.list() < chestObj.pWrap.size())then
             --only if there is an open slot
             avaRasChestsTable.action.addChest(chestObj.name, currentIndex)
         end
-        currentIndex = storageSystem.chestGroups.allRasChestList.nextIndex()
+        currentIndex = storageSystem.chestGroups.rasChestGroup.nextIndex()
     until currentIndex == startIndex
     avaRasChestsTable.save()
 end
@@ -292,7 +373,7 @@ end
 function storageSystem.chestGroups.findFreeRasChestSlot(time)
     local avaRasChestTable = storageSystem.chestGroups.chestDB.action.getAvalibleRasChests()
     for chestName, allRasIndex in pairs(avaRasChestTable.recordHashMap._data) do
-        local chestObj = storageSystem.chestGroups.allRasChestList.get(allRasIndex)
+        local chestObj = storageSystem.chestGroups.rasChestGroup.get(allRasIndex)
         local slotIndex, itemCount, itemName = storageSystem.chestGroups.findNextSlotWithCriteria(chestObj.pWrap, chestObj.lastSlot, storageSystem.chestGroups.isEmptySlot)
         if(slotIndex ~= -1) then
             return chestObj, slotIndex
@@ -384,12 +465,20 @@ function storageSystem.chestGroups.dropIntoChestList(chestList, sourceName, sour
     return transferedAmount
 end
 
-function storageSystem.removeFromRAS(itemName, targetChestList, desiredItemCount)
+function storageSystem.removeFromRAS(itemName, targetChestListName, desiredItemCount)
     --return number of items transfered
     local itemTable = itemDB.action.getTable(itemName)
     if(not itemTable) then
-        return 400, "unable to find a table for " .. itemName
+        return 400, {errorMessage="unable to find a table for " .. itemName}
     end
+
+    if(not pnetworkConfig.groupList[targetChestListName]) then
+        return 400, {errorMessage="target chest group did not exist in pnetwork"}
+    elseif(not storageSystem.chestGroups[targetChestListName]) then
+        --setup chestGroup
+        storageSystem.chestGroups[targetChestListName] = storageSystem.chestGroups.createChestGroup(targetChestListName)
+    end
+    local targetChestList = storageSystem.chestGroups[targetChestListName]
 
     local function removeFromRas(itemTable, targetChestList, currentRecord, desiredItemCount)
         --determine number of items
@@ -508,7 +597,7 @@ function storageSystem.tasks.handleInputChestsTask()
     print("handling input chests")
     while true do
         --get a non-empty slot from the input chests
-        local inputChest, inputChestSlotIndex, avalibleItemCount, itemName = storageSystem.chestGroups.findNextChestSlotWithCriteria(storageSystem.chestGroups.inputHopperGroup, storageSystem.chestGroups.isNonEmptySlot)
+        local inputChest, inputChestSlotIndex, avalibleItemCount, itemName = storageSystem.chestGroups.findNextChestSlotWithCriteria(storageSystem.chestGroups.inputChestGroup, storageSystem.chestGroups.isNonEmptySlot)
         --make sure there is a non-empty chestSlot that isnt currently being used by another task
         if(not inputChest or avalibleItemCount == 0 ) then
             --nothing in the input chest, give it a second
@@ -545,46 +634,98 @@ function storageSystem.tasks.checkAPIArguments(sentData, task, ...)
     return true
 end
 
+peripheral.find("modem", rednet.open)
 storageSystem.comms = {}
-storageSystem.comms.protocol = "kode.nis"
-storageSystem.comms.hostname = "kode.mountainbase.nis_server"
 
-function storageSystem.tasks.handleNetworkItemStorageAPIMessages()
-    --open rednet on all modems
-    print("listening for nis messages")
-    peripheral.find("modem", rednet.open)
-    rednet.host(storageSystem.comms.protocol, storageSystem.comms.hostname)
+function storageSystem.comms.getClientProtocol()
+    return 200, {clientProtocol=storageSystem.config.data.clientProtocol}
+end
+
+function storageSystem.comms.getClientList()
+    return 200, {clientList=storageSystem.config.data.clientList}
+end
+
+function storageSystem.comms.registerClientName(clientId, clientName)
+    local lookupList = {rednet.lookup(storageSystem.config.data.clientProtocol, clientName)}
+    if(storageSystem.config.data.clientList[clientName] or #lookupList > 0) then
+        return 500, {errorMessage="client name in use"}
+    else
+        storageSystem.config.data.clientList[clientName] = clientId
+        storageSystem.config.save()
+        return 200
+    end
+end
+
+function storageSystem.comms.registerClientChests(clientName, inputGroup, outputGroup)
+    --TODO more validating
+    pnetworkConfig.groupList[inputGroup.groupName] = inputGroup
+    storageSystem.chestGroups[inputGroup.groupName] = storageSystem.chestGroups.createChestGroup(inputGroup.groupName)
+    pnetworkConfig.groupList[outputGroup.groupName] = outputGroup
+    storageSystem.chestGroups[outputGroup.groupName] = storageSystem.chestGroups.createChestGroup(outputGroup.groupName)
+    savePnetworkConfig()
+    return 200
+end
+
+function storageSystem.comms.getPnetwork()
+    return 200, {pnetworkconfig=pnetworkConfig}
+end
+
+
+
+
+function storageSystem.tasks.handleNetworkItemStorageServerAPIMessages()
+    print("listening for nis server messages")
 
     while true do
-        local computerID, data = rednet.receive(storageSystem.comms.protocol)
+        local computerID, data = rednet.receive(storageSystem.config.data.serverProtocol)
         --create a task and put it on the task queue
         local task = storageSystem.tasks.newTask()
         task.responseComputerID = computerID
-
+        task.protocol = storageSystem.config.data.serverProtocol
         if(not data or not data.command) then
             task.response.code = 400
             task.response.data = {errorMessage = "unable to process empty data or command"}
             storageSystem.tasks.doneQueue.push(task)
             os.queueEvent(storageSystem.tasks.doneQueueEvent)
-        elseif(data.command == "get") then
-            print("get command recieved")
-            task.name = "get"
+        elseif(data.command == "getClientProtocol") then
+            task.name = data.command
+            task.funct = storageSystem.comms.getClientProtocol
+            storageSystem.tasks.todoQueue.push(task)
+            os.queueEvent(storageSystem.tasks.todoQueueEvent)
+        elseif(data.command == "getClientList") then
+            task.name = data.command
+            task.funct = storageSystem.comms.getClientList
+            storageSystem.tasks.todoQueue.push(task)
+            os.queueEvent(storageSystem.tasks.todoQueueEvent)
+        elseif(data.command == "registerClientName") then
             if(not storageSystem.tasks.checkAPIArguments(data, task, 
-                                                {fieldName = "itemName", type = "string"},
-                                                {fieldName = "itemCount", type = "number"},
-                                                {fieldName = "targetChestGroupName", type = "string"})) then
+                                                {fieldName = "clientName", type = "string"})) then
                 storageSystem.tasks.doneQueue.push(task)
                 os.queueEvent(storageSystem.tasks.doneQueueEvent)
             else
-                task.funct = function() return storageSystem.removeFromRAS(data.itemName, storageSystem.chestGroups[data.targetChestGroupName], data.itemCount) end
+                task.funct = function() return storageSystem.comms.registerClientName(computerID, data.clientName) end
                 task.itemName = data.itemName
                 storageSystem.tasks.todoQueue.push(task)
                 os.queueEvent(storageSystem.tasks.todoQueueEvent)
             end
-        elseif(data.command == "read") then
-            --can specify an item or get the whole itemDB
-        elseif(data.command == "new-client") then
-
+        elseif(data.command == "registerClientChests") then
+            if(not storageSystem.tasks.checkAPIArguments(data, task, 
+                                                {fieldName = "clientName", type = "string"},
+                                                {fieldName = "inputGroup", type = "table"},
+                                                {fieldName = "outputGroup", type = "table"})) then
+                storageSystem.tasks.doneQueue.push(task)
+                os.queueEvent(storageSystem.tasks.doneQueueEvent)
+            else
+                task.funct = function() return storageSystem.comms.registerClientChests(data.clientName, data.inputGroup, data.outputGroup) end
+                task.itemName = data.itemName
+                storageSystem.tasks.todoQueue.push(task)
+                os.queueEvent(storageSystem.tasks.todoQueueEvent)
+            end
+        elseif(data.command == "getPnetwork") then
+            task.name = data.command
+            task.funct = storageSystem.comms.getPnetwork
+            storageSystem.tasks.todoQueue.push(task)
+            os.queueEvent(storageSystem.tasks.todoQueueEvent)
         elseif(data.command == "client-online") then
             --client just turned on, check if they need to update their program files and respond accordingly
         elseif(data.command == "verify-db") then
@@ -594,16 +735,52 @@ function storageSystem.tasks.handleNetworkItemStorageAPIMessages()
             --attempt to fix any incorrect values in the item and chest db
         elseif(data.command == "regenerate-db") then
             --toss out old db files and regenerate new ones
+        else
+            task.response.code = 400
+            task.response.data = {errorMessage = "command not reconized"}
+            storageSystem.tasks.doneQueue.push(task)
+            os.queueEvent(storageSystem.tasks.doneQueueEvent)
         end
 
-        --put itemName, itemCount, sourceChestName, sourceChestSlot, -> amount transfered
-        --get itemName, itemCount, targetChestName -? amount transfered
-        --getInventory ->get entire inventory which includes all item types and how many we have of each
-        --getInventory itemName -> only get inventory info for a specific item type
-        --verify //verify data in database compared to chests, report where wrong
-        --regenDB //delete DB and use current chest contents to generate a new DB
     end
+end
 
+function storageSystem.tasks.handleNetworkItemStorageClientAPIMessages()
+    print("listening for nis client messages")
+
+    while true do
+        local computerID, data = rednet.receive(storageSystem.config.data.clientProtocol)
+        --create a task and put it on the task queue
+        local task = storageSystem.tasks.newTask()
+        task.responseComputerID = computerID
+        task.protocol = storageSystem.config.data.clientProtocol
+        if(not data or not data.command) then
+            task.response.code = 400
+            task.response.data = {errorMessage = "unable to process empty data or command"}
+            storageSystem.tasks.doneQueue.push(task)
+            os.queueEvent(storageSystem.tasks.doneQueueEvent)
+        elseif(data.command == "get") then
+            if(not storageSystem.tasks.checkAPIArguments(data, task, 
+                                                {fieldName = "itemName", type = "string"},
+                                                {fieldName = "itemCount", type = "number"},
+                                                {fieldName = "targetChestGroupName", type = "string"})) then
+                storageSystem.tasks.doneQueue.push(task)
+                os.queueEvent(storageSystem.tasks.doneQueueEvent)
+            else
+                task.funct = function() return storageSystem.removeFromRAS(data.itemName, data.targetChestGroupName, data.itemCount) end
+                task.itemName = data.itemName
+                storageSystem.tasks.todoQueue.push(task)
+                os.queueEvent(storageSystem.tasks.todoQueueEvent)
+            end
+        elseif(data.command == "read") then
+            --can specify an item or get the whole itemDB
+        else
+            task.response.code = 400
+            task.response.data = {errorMessage = "command not reconnized: " .. data.command}
+            storageSystem.tasks.doneQueue.push(task)
+            os.queueEvent(storageSystem.tasks.doneQueueEvent)
+        end
+    end
 end
 
 function storageSystem.tasks.handleToDoQueueTask()
@@ -618,7 +795,7 @@ function storageSystem.tasks.handleToDoQueueTask()
             local responseCode, responseData = task.funct()
 
             task.response.code = responseCode
-            task.response.data = responseData
+            task.response.data = responseData or {}
 
             storageSystem.tasks.doneQueue.push(task)
             os.queueEvent(storageSystem.tasks.doneQueueEvent)
@@ -652,7 +829,7 @@ function storageSystem.tasks.handleDoneQueueTask()
 
             if(task.responseComputerID) then
                 --respond to the computer that send the API request
-                if(not rednet.send(task.responseComputerID, task.response, storageSystem.comms.protocol)) then
+                if(not rednet.send(task.responseComputerID, task.response, task.protocol)) then
                     --log
                     print("message not sent to: " .. task.responseComputerID .. textutils.serialize(task.response))
                 end
@@ -668,7 +845,7 @@ end
 local function mainAddingLoop()
     print("starting normal operations")
     while true do
-        local inputChest, inputChestSlotIndex, avalibleItemCount, itemName = storageSystem.chestGroups.findNextChestSlotWithCriteria(storageSystem.chestGroups.inputHopperGroup, storageSystem.chestGroups.isNonEmptySlot)
+        local inputChest, inputChestSlotIndex, avalibleItemCount, itemName = storageSystem.chestGroups.findNextChestSlotWithCriteria(storageSystem.chestGroups.inputChestGroup, storageSystem.chestGroups.isNonEmptySlot)
         if(inputChest and avalibleItemCount > 0) then
             storageSystem.addToRAS(itemName,inputChest, inputChestSlotIndex, avalibleItemCount)
             --do I need to make this work in parallel? saving the file will have to be in series
@@ -676,7 +853,7 @@ local function mainAddingLoop()
     end
 end
 
-parallel.waitForAny(storageSystem.tasks.handleInputChestsTask, storageSystem.tasks.handleToDoQueueTask, storageSystem.tasks.handleDoneQueueTask, storageSystem.tasks.handleNetworkItemStorageAPIMessages)
+parallel.waitForAny(storageSystem.tasks.handleInputChestsTask, storageSystem.tasks.handleToDoQueueTask, storageSystem.tasks.handleDoneQueueTask, storageSystem.tasks.handleNetworkItemStorageServerAPIMessages, storageSystem.tasks.handleNetworkItemStorageClientAPIMessages)
 --mainAddingLoop()
 --os.sleep(5)
 --storageSystem.removeFromRAS("minecraft:packed_ice", storageSystem.chestGroups.outputChestList, 2)

@@ -87,7 +87,7 @@ function iListBuilder.new(name)
         jsonObj._max_length = list._max_length
         jsonObj._size = list._size
         jsonObj.currentIndex = list.currentIndex
-        jsonObj.members = list._members
+        jsonObj._members = list._members
         return jsonObj
     end
 
