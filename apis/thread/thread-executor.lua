@@ -3,6 +3,7 @@ local expect, field, range = expect.expect, expect.field, expect.range
 
 local poolBuilder = require(settings.get("require.api_path") .. "utils.pool")
 local queueBuilder = require(settings.get("require.api_path") .. "utils.queue")
+local parallel = require(settings.get("require.api_path") .. "thread.parallel-timeout")
 
 
 --will run multiple functions like parallel API
@@ -38,7 +39,7 @@ local function newThreadController(threadExecutor, thread)
 	--wait will yield until the desired thread returns
 	function threadController.wait() --todo timeout?
 		while true do
-			local event, id = os.pullEvent("thread-executor-return")
+			local event, id = os.pullEvent(config.END_EVENT)
 			if id == threadController.id then
 				return threadController.getResults()
 			end
@@ -49,13 +50,23 @@ local function newThreadController(threadExecutor, thread)
 end
 
 local threadExecutorBuilder = {}
-function threadExecutorBuilder.new(id)
-	local threadExecutor = {}
-	local WAKEUP_EVENT = "thread-executor-" .. id .. "-start" --id is for identiying this instance of the thread-executor
-	local threadPool = poolBuilder.new(1000);
-	threadExecutor.threadPool = threadPool                 --todo temp dev
-	local shutdown = false
-	local executor_status = "NOT_STARTED"
+function threadExecutorBuilder.new(new_config)
+	--once thread executor is started it is not suggested to edit the config externally
+	--id is for identiying this instance of the thread-executor
+	local config              = {}
+	config.id                 = new_config.id or math.random(1000)
+	config.EVENT_TYPE         = new_config.EVENT_TYPE or ("thread-executor-" .. config.id)
+	config.WAKEUP_EVENT       = new_config.WAKEUP_EVENT or (config.EVENT_TYPE .. "-start")
+	config.END_EVENT          = new_config.END_EVENT or (config.EVENT_TYPE .. "-end")
+	config.pullEventFunction  = new_config.WAKEUP_EVENT or os.pullEventRaw
+	config.close_when_empty   = new_config.close_when_empty or true
+	local threadExecutor      = {}
+	--this reference will be removed after executor is started to prevent unwanted modification
+	threadExecutor._config    = config
+	local threadPool          = poolBuilder.new(1000);
+	threadExecutor.threadPool = threadPool --todo temp dev
+	local shutdown            = false
+	local executor_status     = "NOT_STARTED"
 	--local commandQueue = queueBuilder.new()
 
 	function threadExecutor.getStatus()
@@ -81,7 +92,7 @@ function threadExecutorBuilder.new(id)
 		thread.results = nil                                           --will be given a value throughout the execution or just at end?
 		local threadController = newThreadController(threadExecutor, thread) --todo what we share with others
 		threadController.id = threadPool.add(thread)                   --this will launch the thread asap
-		os.queueEvent(WAKEUP_EVENT)                                    --wakeup the executor if sleeping
+		os.queueEvent(config.WAKEUP_EVENT)                             --wakeup the executor if sleeping
 		return threadController
 	end
 
@@ -102,6 +113,8 @@ function threadExecutorBuilder.new(id)
 	--start
 	--this will not yield until shutdown, this should be your root loop of your program
 	function threadExecutor.start()
+		--remove access to config to prevent modification after start
+		threadExecutor.config = nil
 		executor_status = "RUNNING"
 		local eventData = { n = 0 }
 
@@ -109,8 +122,7 @@ function threadExecutorBuilder.new(id)
 			--todo empty pool event listen
 			if threadPool._size == 0 then
 				--wait until we get a wakeup event since no threads to manage
-				os.pullEvent(WAKEUP_EVENT) --probably need to pull raw, but do that later
-				print("wakeup") --todo debug
+				os.pullEvent(config.WAKEUP_EVENT) --probably need to pull raw, but do that later
 			end
 
 			--todo shutdown check
@@ -139,7 +151,7 @@ function threadExecutorBuilder.new(id)
 					threadPool.remove(id)
 				end
 			end
-			eventData = table.pack(os.pullEventRaw())
+			eventData = table.pack(config.pullEventRaw())
 		end
 	end
 
