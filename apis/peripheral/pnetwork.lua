@@ -179,6 +179,7 @@ function pnetworkBuilder.new(dirName, fileName)
     pnetwork.ui = {}
     
     function pnetwork.ui.printList(myList)
+		if(myList == nil) then return end
         for key, value in pairs(myList) do
             print(key .. " - " .. textutils.serialize(value))
             print("press enter to scroll")
@@ -323,6 +324,29 @@ function pnetworkBuilder.new(dirName, fileName)
             print("Next")
         end
     end
+
+	function pnetwork.ui.command.addAllNew()
+		print("which group should this be assigned to? (leave blank to skip")
+            local groupName = read()
+            if(groupName == nil or groupName == "" or not pnetwork.config.groupList[groupName])
+            then
+				print("No group with that name.")
+				return
+			else
+				print("adding all new peripherals to group: " .. groupName)
+			end
+
+			for pName, pObject in pairs(pnetwork.newPList) do
+				print("processing " .. pName)
+				if(pnetwork.config.groupList[groupName]._members[pObject.name])
+				then
+					print(pName .. " already in that group")
+				else
+					pnetwork.addNewPeripheralToGroup(pObject, pnetwork.config.groupList[groupName])
+					print("added " .. pObject.name .. " to " .. groupName)
+				end 
+			end
+	end
     
     function pnetwork.ui.command.removeFromGroup()
         print("Which group would you like to remove a peripheral from?")
@@ -405,6 +429,8 @@ function pnetworkBuilder.new(dirName, fileName)
         print(" - help|h      : print avalible commands")
         print(" - quit|q      : exit program")
         print("")
+		print("press enter to continue")
+        read()
         print("-- managing groups --")
         print(" - printGroups : print all groups with their registered peripherals from the config file")
         print(" - createGroup : creates a new group")
@@ -419,7 +445,10 @@ function pnetworkBuilder.new(dirName, fileName)
         print(" - printNew        : print all peripherals in the newPList, peripherals will be removed once added to a group in the config")
         print(" - printRegistered : print all registered peripherals")
         print(" - assignNew       : cycle through newPList, print contents, and assign to a group. Leave blank to skip")
+		print(" - addAllNew       : adds all peripherals in newPList to the selected group")
         print("")
+		print("press enter to continue")
+        read()
         print("-- managing peripherals that are in groups  --")
         print(" - removeFromGroup  : peripheral is removed from it's current group and added to the newPList")
         print(" - printPeripheral  : print contents of a specific peripheral")
@@ -448,6 +477,7 @@ function pnetworkBuilder.new(dirName, fileName)
             ["printNew"] = function () pnetwork.ui.printList(pnetwork.newPList) end,
             ["printRegistered"] = function () pnetwork.ui.printList(pnetwork.pList) end,
             ["assignNew"] = pnetwork.ui.command.assignNewPeripherals,
+			["addAllNew"] = pnetwork.ui.command.addAllNew,
             
             ["removeFromGroup"] = pnetwork.ui.command.removeFromGroup,
             ["printPeripheral"] = pnetwork.ui.command.printPeripheral,
